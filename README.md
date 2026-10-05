@@ -81,6 +81,13 @@ and `NO_COLOR`. Logging is not suitable for the audio callback.
 
 - `xmake.lua`: static engine, Qt Quick application and doctest target.
 - `src/engine/AudioEngine.*`: Qt-free engine and RtAudio device ownership.
+- `src/engine/Timeline.*`: Qt-free timeline types and indexed overlap queries.
+- `src/engine/Commands.hpp`: command interfaces and concrete edit declarations.
+- `src/engine/CommandSupport.hpp`: internal editing and ID allocation helpers.
+- `src/engine/TrackCommands.cpp`: track edits and track property commands.
+- `src/engine/ClipCommands.cpp`: clip edits and clip gain commands.
+- `src/engine/History.*`: bounded undo/redo and property command merging.
+- `tests/timeline_test.cpp`: command, history, stress and range-query tests.
 - `src/app/EngineController.hpp`: QObject adapter exposed as `audioEngine`.
 - `src/app/main.cpp`: app startup and smoke-test mode.
 - `src/ui/main.qml`, `src/ui/ui.qrc`: dark placeholder UI embedded as resources.
@@ -93,6 +100,12 @@ and `NO_COLOR`. Logging is not suitable for the audio callback.
 - `tests/engine_test.cpp`: deterministic device-free lifecycle test.
 - `src/ui/timeline/`: virtualized mock timeline; Ctrl+wheel zooms at the pointer, wheel/Shift+wheel scroll horizontally, and the right scrollbar scrolls tracks.
 - `MockTimelineModel.stress`: generates 100 tracks with 200 clips each; the adapter contract is documented at the top of `TimelineView.qml`.
+
+Timeline editing, history and queries run on the main thread. Range queries use
+half-open intervals and include overlapping clips. Timeline equality compares
+visible state; ID allocation counters survive undo to prevent ID reuse.
+Validation returns a bool-like `Result` with an `Error` enum, keeping the engine
+on C++20 (`std::expected` requires C++23).
 
 Engine control methods run on one control thread. Repeated start/stop calls
 are safe. `sampleRate()` is zero while stopped and 48000 in no-device mode.

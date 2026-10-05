@@ -85,7 +85,8 @@ target("wavy_decoder")
 target("wavy_engine")
     set_kind("static")
     add_files("src/engine/AudioEngine.cpp", "src/engine/Log.cpp", "src/engine/AudioFile.cpp",
-              "src/engine/Peaks.cpp")
+              "src/engine/Peaks.cpp", "src/engine/Timeline.cpp", "src/engine/TrackCommands.cpp",
+              "src/engine/ClipCommands.cpp", "src/engine/History.cpp")
     add_deps("wavy_decoder")
     add_includedirs("src/engine", {public = true})
     add_packages("rtaudio", {public = true})
@@ -115,6 +116,14 @@ target("audio_file_tests")
     add_packages("doctest", "rtaudio")
     add_files("tests/audio_file_test.cpp")
     add_tests("audio_file")
+
+target("timeline_tests")
+    set_kind("binary")
+    add_deps("wavy_engine")
+    add_rules("rtaudio_rpath")
+    add_packages("doctest", "rtaudio")
+    add_files("tests/timeline_test.cpp")
+    add_tests("timeline")
 
 task("fmt")
     set_menu {
