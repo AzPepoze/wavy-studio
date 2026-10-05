@@ -1,6 +1,7 @@
 set_project("wavy-studio")
 set_version("0.1.0")
-set_languages("cxx20")
+-- C++23 for the whole project: std::expected is used in public engine headers.
+set_languages("cxx23")
 set_warnings("all", "extra")
 set_config("qt_sdkver", "6.11.2", {force = false})
 add_rules("mode.debug", "mode.release")
@@ -48,6 +49,7 @@ else
     add_requires("rtaudio 6.0.1", {system = false, configs = audio_configs})
 end
 add_requires("doctest")
+add_requires("miniaudio")
 
 -- Override with xmake f --qt=<SDK directory> for Windows or another Qt SDK.
 if is_plat("linux") then
@@ -74,9 +76,17 @@ rule("rtaudio_rpath")
         end
     end)
 
+-- miniaudio's implementation is big, so it lives in its own library and is compiled once.
+target("wavy_decoder")
+    set_kind("static")
+    add_files("src/engine/MiniaudioDecoder.cpp")
+    add_packages("miniaudio")
+
 target("wavy_engine")
     set_kind("static")
-    add_files("src/engine/AudioEngine.cpp", "src/engine/Log.cpp")
+    add_files("src/engine/AudioEngine.cpp", "src/engine/Log.cpp", "src/engine/AudioFile.cpp",
+              "src/engine/Peaks.cpp")
+    add_deps("wavy_decoder")
     add_includedirs("src/engine", {public = true})
     add_packages("rtaudio", {public = true})
     if is_plat("linux") then
@@ -97,6 +107,14 @@ target("engine_tests")
     add_packages("doctest", "rtaudio")
     add_files("tests/engine_test.cpp")
     add_tests("no_device")
+
+target("audio_file_tests")
+    set_kind("binary")
+    add_deps("wavy_engine")
+    add_rules("rtaudio_rpath")
+    add_packages("doctest", "rtaudio")
+    add_files("tests/audio_file_test.cpp")
+    add_tests("audio_file")
 
 task("fmt")
     set_menu {

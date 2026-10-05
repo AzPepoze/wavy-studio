@@ -4,7 +4,11 @@ A small C++20 / Qt 6 Quick desktop skeleton. The engine plays silence; there
 are no DAW features. xmake is the supported build system.
 
 Requirements: xmake 3.1.1+, a C++20 compiler and Qt 6 (Quick and QuickControls2).
-Dependencies (RtAudio 6.0.1, doctest) are fetched by xmake via `add_requires`.
+The audio loading API requires C++23 for `std::expected`; its source files and
+tests select C++23 while other targets retain C++20. A target sample rate of zero
+keeps the native rate. Peak queries use whole pyramid buckets, conservatively
+including boundary samples at the selected resolution.
+Dependencies (RtAudio 6.0.1, doctest, miniaudio) are fetched by xmake via `add_requires`.
 
 ## Linux
 
@@ -80,6 +84,12 @@ and `NO_COLOR`. Logging is not suitable for the audio callback.
 - `src/app/EngineController.hpp`: QObject adapter exposed as `audioEngine`.
 - `src/app/main.cpp`: app startup and smoke-test mode.
 - `src/ui/main.qml`, `src/ui/ui.qrc`: dark placeholder UI embedded as resources.
+- `src/engine/AudioFile.hpp`: Audio buffer and loading API.
+- `src/engine/AudioFile.cpp`: Loading diagnostics.
+- `src/engine/MiniaudioDecoder.cpp`: WAV, MP3 and FLAC decoder.
+- `src/engine/Peaks.hpp`: Waveform peak API.
+- `src/engine/Peaks.cpp`: Mono peak pyramid.
+- `tests/audio_file_test.cpp`: Generated audio and peak tests.
 - `tests/engine_test.cpp`: deterministic device-free lifecycle test.
 - `src/ui/timeline/`: virtualized mock timeline; Ctrl+wheel zooms at the pointer, wheel/Shift+wheel scroll horizontally, and the right scrollbar scrolls tracks.
 - `MockTimelineModel.stress`: generates 100 tracks with 200 clips each; the adapter contract is documented at the top of `TimelineView.qml`.
