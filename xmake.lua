@@ -16,7 +16,8 @@ option("jack")
 option_end()
 
 -- ASIO is available under GPLv3 (this project is GPL-3.0-or-later), so binaries may include it.
-local audio_configs = {asio = has_config("asio"), shared = true}
+-- Shared on Linux so the package's own link test finds ALSA/Pulse/JACK; static on Windows so no DLL must be found at run time.
+local audio_configs = {asio = has_config("asio"), shared = is_plat("linux")}
 if is_plat("linux") then
     audio_configs.alsa = true
     audio_configs.pulseaudio = true

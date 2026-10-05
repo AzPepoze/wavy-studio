@@ -12,7 +12,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            qt-arch: gcc_64
+            qt-arch: linux_gcc_64
             package-dir: ~/.xmake
           - os: windows-latest
             qt-arch: win64_msvc2022_64
@@ -50,6 +50,6 @@ jobs:
       - name: Build
         run: xmake
       - name: Test
-        run: xmake test
+        run: xmake test -v
       - name: Smoke test
         run: xmake run wavy-studio --smoke-test
