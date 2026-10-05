@@ -17,7 +17,12 @@ option_end()
 
 -- ASIO is available under GPLv3 (this project is GPL-3.0-or-later), so binaries may include it.
 -- Shared on Linux so the package's own link test finds ALSA/Pulse/JACK; static on Windows so no DLL must be found at run time.
+-- Windows also uses the dynamic C runtime (MD) like Qt, otherwise the linker reports a RuntimeLibrary mismatch.
 local audio_configs = {asio = has_config("asio"), shared = is_plat("linux")}
+if is_plat("windows") then
+    set_runtimes("MD")
+    audio_configs.runtimes = "MD"
+end
 if is_plat("linux") then
     audio_configs.alsa = true
     audio_configs.pulseaudio = true
@@ -48,6 +53,17 @@ if is_plat("linux") then
     set_config("qt", "/usr", {force = false})
 end
 
+-- A shared RtAudio built by xmake lives in its package dir, so executables need an rpath to find it.
+rule("rtaudio_rpath")
+    on_load(function (target)
+        local pkg = target:pkg("rtaudio")
+        if pkg then
+            for _, dir in ipairs(pkg:get("linkdirs") or {}) do
+                target:add("rpathdirs", dir)
+            end
+        end
+    end)
+
 target("wavy_engine")
     set_kind("static")
     add_files("src/engine/AudioEngine.cpp")
@@ -58,15 +74,17 @@ target("wavy_engine")
     end
 
 target("wavy-studio")
-    add_rules("qt.quickapp")
+    add_rules("qt.quickapp", "rtaudio_rpath")
     add_frameworks("QtQuickControls2")
     add_deps("wavy_engine")
+    add_packages("rtaudio")
     add_files("src/app/main.cpp", "src/app/EngineController.hpp", "src/ui/ui.qrc")
 
 target("engine_tests")
     set_kind("binary")
     add_deps("wavy_engine")
-    add_packages("doctest")
+    add_rules("rtaudio_rpath")
+    add_packages("doctest", "rtaudio")
     add_files("tests/engine_test.cpp")
     add_tests("no_device", {run_timeout = 10})
 
