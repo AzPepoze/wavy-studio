@@ -81,6 +81,8 @@ and `NO_COLOR`. Logging is not suitable for the audio callback.
 - `src/app/main.cpp`: app startup and smoke-test mode.
 - `src/ui/main.qml`, `src/ui/ui.qrc`: dark placeholder UI embedded as resources.
 - `tests/engine_test.cpp`: deterministic device-free lifecycle test.
+- `src/ui/timeline/`: virtualized mock timeline; Ctrl+wheel zooms at the pointer, wheel/Shift+wheel scroll horizontally, and the right scrollbar scrolls tracks.
+- `MockTimelineModel.stress`: generates 100 tracks with 200 clips each; the adapter contract is documented at the top of `TimelineView.qml`.
 
 Engine control methods run on one control thread. Repeated start/stop calls
 are safe. `sampleRate()` is zero while stopped and 48000 in no-device mode.

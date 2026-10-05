@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "timeline"
 
 ApplicationWindow {
     visible: true
@@ -30,30 +31,9 @@ ApplicationWindow {
             Label { text: "Transport"; color: "#9099ac" }
         }
     }
-    RowLayout {
+    TimelineView {
         anchors.fill: parent
         anchors.margins: 16
-        spacing: 16
-        Rectangle {
-            Layout.preferredWidth: 220
-            Layout.fillHeight: true
-            color: "#222630"
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 16
-                Label { text: "Tracks"; font.bold: true }
-                Label { text: "No tracks yet"; color: "#9099ac" }
-                Item { Layout.fillHeight: true }
-            }
-        }
-        Label {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            text: "Your workspace"
-            color: "#9099ac"
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-        }
     }
     footer: ToolBar {
         background: Rectangle { color: "#252a35" }
