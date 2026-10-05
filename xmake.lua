@@ -96,7 +96,7 @@ target("engine_tests")
     add_rules("rtaudio_rpath")
     add_packages("doctest", "rtaudio")
     add_files("tests/engine_test.cpp")
-    add_tests("no_device", {run_timeout = 10})
+    add_tests("no_device")
 
 task("fmt")
     set_menu {

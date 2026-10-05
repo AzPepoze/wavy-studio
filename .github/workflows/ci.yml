@@ -18,6 +18,7 @@ jobs:
             qt-arch: win64_msvc2022_64
             package-dir: ~/AppData/Local/.xmake
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     env:
       QT_QPA_PLATFORM: offscreen
       QT_QUICK_BACKEND: software
