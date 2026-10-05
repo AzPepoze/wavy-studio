@@ -1,0 +1,13 @@
+/build/
+/compile_commands.json
+/.cache/
+/.idea/
+/.vscode/
+*.user
+
+/.xmake/
+
+# Empty placeholder dirs created by the Codex sandbox
+/.agents/
+/.aws/
+/.codex/

@@ -1,0 +1,3 @@
+Checks: '-*,bugprone-*,-bugprone-invalid-enum-default-initialization,performance-*,-performance-enum-size,modernize-use-nullptr,modernize-use-override'
+WarningsAsErrors: ''
+HeaderFilterRegex: 'src/.*'
