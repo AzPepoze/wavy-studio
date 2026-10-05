@@ -1,4 +1,5 @@
 #include "AudioEngine.hpp"
+#include "Log.hpp"
 #include <atomic>
 #include <cstddef>
 #include <cstring>
@@ -27,11 +28,14 @@ bool AudioEngine::start() {
     if (impl_->mode == DeviceMode::Default) {
         impl_->device = std::make_unique<RtAudio>(
             RtAudio::UNSPECIFIED,
-            [state = impl_.get()](RtAudioErrorType type, const std::string&) noexcept {
+            [state = impl_.get()](RtAudioErrorType type, const std::string& message) {
+                log::write(type == RTAUDIO_WARNING ? log::Level::Warn : log::Level::Error,
+                           "rtaudio", message);
                 if (type != RTAUDIO_WARNING && type != RTAUDIO_NO_ERROR)
                     state->deviceFailed.store(true, std::memory_order_relaxed);
             });
         auto& device = *impl_->device;
+        log::debug("audio", "API: {}", RtAudio::getApiDisplayName(device.getCurrentApi()));
         if (device.getDeviceCount() > 0) {
             RtAudio::StreamParameters output;
             output.deviceId = device.getDefaultOutputDevice();
@@ -41,19 +45,26 @@ bool AudioEngine::start() {
             if (device.openStream(&output, nullptr, RTAUDIO_FLOAT32, 48000, &frames,
                                   Impl::render) == RTAUDIO_NO_ERROR &&
                 device.startStream() == RTAUDIO_NO_ERROR &&
-                !impl_->deviceFailed.load(std::memory_order_relaxed))
+                !impl_->deviceFailed.load(std::memory_order_relaxed)) {
                 impl_->rate = device.getStreamSampleRate();
-            else
+                log::info("audio", "Device opened: {} at {} Hz",
+                          device.getDeviceInfo(output.deviceId).name, impl_->rate);
+            } else
                 impl_->device.reset();
         } else {
             impl_->device.reset();
         }
     }
+    if (impl_->mode == DeviceMode::Default && !impl_->device)
+        log::warn("audio", "Falling back to no-device mode");
+    log::debug("audio", "Engine started");
     // A failed device initialization/start is a valid silent, no-device session.
     impl_->running = true;
     return true;
 }
 void AudioEngine::stop() {
+    if (impl_->running)
+        log::debug("audio", "Engine stopped");
     impl_->device.reset();
     impl_->rate = 48000;
     impl_->running = false;

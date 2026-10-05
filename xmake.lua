@@ -66,7 +66,7 @@ rule("rtaudio_rpath")
 
 target("wavy_engine")
     set_kind("static")
-    add_files("src/engine/AudioEngine.cpp")
+    add_files("src/engine/AudioEngine.cpp", "src/engine/Log.cpp")
     add_includedirs("src/engine", {public = true})
     add_packages("rtaudio", {public = true})
     if is_plat("linux") then

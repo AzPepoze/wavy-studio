@@ -65,6 +65,14 @@ xmake
 GitHub Actions builds release binaries on Linux and Windows with xmake and
 Qt 6.8.3, then runs the engine tests and an offscreen application smoke test.
 
+## Logging
+
+Logs go to stderr with a timestamp, level and category. `WAVY_LOG` sets the
+minimum level: `trace`, `debug`, `info`, `warn` or `error` (default: `debug` in
+debug builds, `info` in release). Colors are enabled for terminals;
+`NO_COLOR` disables them. `WAVY_LOG_COLOR=always|never` overrides detection
+and `NO_COLOR`. Logging is not suitable for the audio callback.
+
 ## Layout
 
 - `xmake.lua`: static engine, Qt Quick application and doctest target.
