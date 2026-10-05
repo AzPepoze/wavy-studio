@@ -1,4 +1,4 @@
-#include "Peaks.hpp"
+#include "io/Peaks.hpp"
 #include <algorithm>
 #include <limits>
 

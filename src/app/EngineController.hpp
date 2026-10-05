@@ -1,5 +1,5 @@
 #pragma once
-#include "AudioEngine.hpp"
+#include "audio/AudioEngine.hpp"
 #include <QObject>
 
 class EngineController final : public QObject {

@@ -80,24 +80,16 @@ and `NO_COLOR`. Logging is not suitable for the audio callback.
 ## Layout
 
 - `xmake.lua`: static engine, Qt Quick application and doctest target.
-- `src/engine/AudioEngine.*`: Qt-free engine and RtAudio device ownership.
-- `src/engine/Timeline.*`: Qt-free timeline types and indexed overlap queries.
-- `src/engine/Commands.hpp`: command interfaces and concrete edit declarations.
-- `src/engine/CommandSupport.hpp`: internal editing and ID allocation helpers.
-- `src/engine/TrackCommands.cpp`: track edits and track property commands.
-- `src/engine/ClipCommands.cpp`: clip edits and clip gain commands.
-- `src/engine/History.*`: bounded undo/redo and property command merging.
-- `tests/timeline_test.cpp`: command, history, stress and range-query tests.
+- `src/engine/core/`: logging.
+- `src/engine/audio/`: audio device ownership and the real-time path.
+- `src/engine/io/`: audio decoding and waveform peak data.
+- `src/engine/timeline/`: timeline data model, edit commands and undo history.
+- `tests/audio/`: deterministic device-free lifecycle test.
+- `tests/io/`: generated audio and peak tests.
+- `tests/timeline/`: command, history, stress and range-query tests.
 - `src/app/EngineController.hpp`: QObject adapter exposed as `audioEngine`.
 - `src/app/main.cpp`: app startup and smoke-test mode.
 - `src/ui/main.qml`, `src/ui/ui.qrc`: dark placeholder UI embedded as resources.
-- `src/engine/AudioFile.hpp`: Audio buffer and loading API.
-- `src/engine/AudioFile.cpp`: Loading diagnostics.
-- `src/engine/MiniaudioDecoder.cpp`: WAV, MP3 and FLAC decoder.
-- `src/engine/Peaks.hpp`: Waveform peak API.
-- `src/engine/Peaks.cpp`: Mono peak pyramid.
-- `tests/audio_file_test.cpp`: Generated audio and peak tests.
-- `tests/engine_test.cpp`: deterministic device-free lifecycle test.
 - `src/ui/timeline/`: virtualized mock timeline; Ctrl+wheel zooms at the pointer, wheel/Shift+wheel scroll horizontally, and the right scrollbar scrolls tracks.
 - `MockTimelineModel.stress`: generates 100 tracks with 200 clips each; the adapter contract is documented at the top of `TimelineView.qml`.
 

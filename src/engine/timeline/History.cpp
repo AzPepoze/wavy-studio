@@ -1,5 +1,5 @@
-#include "History.hpp"
-#include "Log.hpp"
+#include "timeline/History.hpp"
+#include "core/Log.hpp"
 
 namespace wavy::timeline {
 Result History::execute(std::unique_ptr<Command> command) {

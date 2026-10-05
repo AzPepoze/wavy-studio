@@ -1,6 +1,6 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include "History.hpp"
-#include "Log.hpp"
+#include "core/Log.hpp"
+#include "timeline/History.hpp"
 #include <algorithm>
 #include <chrono>
 #include <doctest/doctest.h>

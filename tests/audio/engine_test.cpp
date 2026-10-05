@@ -1,6 +1,6 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include "AudioEngine.hpp"
-#include "Log.hpp"
+#include "audio/AudioEngine.hpp"
+#include "core/Log.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <doctest/doctest.h>

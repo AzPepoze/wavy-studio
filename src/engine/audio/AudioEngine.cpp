@@ -1,5 +1,5 @@
-#include "AudioEngine.hpp"
-#include "Log.hpp"
+#include "audio/AudioEngine.hpp"
+#include "core/Log.hpp"
 #include <atomic>
 #include <cstddef>
 #include <cstring>

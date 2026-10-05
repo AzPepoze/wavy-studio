@@ -1,5 +1,5 @@
 #pragma once
-#include "AudioFile.hpp"
+#include "io/AudioFile.hpp"
 
 namespace wavy {
 struct PeakPair {

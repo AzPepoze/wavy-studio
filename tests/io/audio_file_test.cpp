@@ -1,7 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include "AudioFile.hpp"
-#include "Log.hpp"
-#include "Peaks.hpp"
+#include "core/Log.hpp"
+#include "io/AudioFile.hpp"
+#include "io/Peaks.hpp"
 #include <bit>
 #include <chrono>
 #include <cmath>

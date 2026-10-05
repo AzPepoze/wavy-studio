@@ -1,5 +1,5 @@
-#include "AudioFile.hpp"
-#include "Log.hpp"
+#include "io/AudioFile.hpp"
+#include "core/Log.hpp"
 #include <chrono>
 
 namespace wavy {

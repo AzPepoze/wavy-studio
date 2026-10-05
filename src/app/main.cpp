@@ -1,5 +1,5 @@
 #include "EngineController.hpp"
-#include "Log.hpp"
+#include "core/Log.hpp"
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>

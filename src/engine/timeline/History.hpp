@@ -1,5 +1,5 @@
 #pragma once
-#include "Commands.hpp"
+#include "timeline/Commands.hpp"
 #include <deque>
 
 namespace wavy::timeline {
