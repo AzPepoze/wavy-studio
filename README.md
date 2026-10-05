@@ -96,8 +96,7 @@ and `NO_COLOR`. Logging is not suitable for the audio callback.
 Timeline editing, history and queries run on the main thread. Range queries use
 half-open intervals and include overlapping clips. Timeline equality compares
 visible state; ID allocation counters survive undo to prevent ID reuse.
-Validation returns a bool-like `Result` with an `Error` enum, keeping the engine
-on C++20 (`std::expected` requires C++23).
+Validation returns a bool-like `Result` with an `Error` enum.
 
 Engine control methods run on one control thread. Repeated start/stop calls
 are safe. `sampleRate()` is zero while stopped and 48000 in no-device mode.
@@ -105,6 +104,18 @@ If audio initialization or startup fails, `start()` still succeeds and the
 engine runs without a device. The test explicitly selects `DeviceMode::NoDevice`
 so it never opens hardware. Smoke mode starts the default engine, loads the
 actual QML and exits successfully after 100 ms; QML load failure returns 1.
+
+## Contributing
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org):
+`type(scope): lowercase imperative summary`, with type one of `feat`, `fix`,
+`perf`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`, `style`, `revert`
+(for example `feat(timeline): add clip split`). Enable the hook that checks this
+once per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
 
 Copyright (C) AzPepoze. Wavy Studio is licensed under the GNU General Public
 License v3.0 or later (see `LICENSE`); dependency licenses apply separately.

@@ -1,0 +1,26 @@
+#!/bin/sh
+# Enforces Conventional Commits: type(optional-scope)!: lowercase imperative summary
+# Enable once per clone with: git config core.hooksPath .githooks
+
+subject=$(head -n 1 "$1")
+
+case "$subject" in
+    Merge\ *|Revert\ *|fixup!\ *|squash!\ *) exit 0 ;;
+esac
+
+pattern='^(feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert)(\([a-z0-9._/-]+\))?!?: [^A-Z.].*[^.]$'
+
+if ! printf '%s\n' "$subject" | grep -Eq "$pattern"; then
+    cat >&2 <<EOF
+Commit message rejected: "$subject"
+
+Use Conventional Commits:  type(scope): lowercase imperative summary
+  types: feat fix perf refactor docs test build ci chore style revert
+  examples:
+    feat(timeline): add clip split
+    fix(audio): handle missing output device
+    chore: group engine sources into folders
+No trailing period. Add ! after the type for breaking changes.
+EOF
+    exit 1
+fi
