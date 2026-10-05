@@ -51,5 +51,14 @@ jobs:
         run: xmake
       - name: Test
         run: xmake test -v
+      - name: Diagnose test failure (Windows)
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Recurse -Filter engine_tests.exe build | Select-Object -First 1
+          Get-ChildItem $exe.DirectoryName
+          Get-ChildItem -Recurse "$env:LOCALAPPDATA\.xmake\packages\r\rtaudio" -Filter *.dll | Select-Object -ExpandProperty FullName
+          & $exe.FullName
+          "exit=$LASTEXITCODE"
       - name: Smoke test
         run: xmake run wavy-studio --smoke-test
