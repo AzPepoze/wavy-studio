@@ -26,7 +26,8 @@ jobs:
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: latest
-      - uses: jurplel/install-qt-action@v4
+      # Pinned: v4.4.0+ uses the "$/action" self-reference syntax that GitHub runners reject.
+      - uses: jurplel/install-qt-action@v4.3.1
         with:
           version: '6.8.3'
           arch: ${{ matrix.qt-arch }}

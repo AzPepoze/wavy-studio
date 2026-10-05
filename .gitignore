@@ -6,8 +6,3 @@
 *.user
 
 /.xmake/
-
-# Empty placeholder dirs created by the Codex sandbox
-/.agents/
-/.aws/
-/.codex/
