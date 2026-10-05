@@ -16,9 +16,10 @@ option("jack")
 option_end()
 
 -- ASIO is available under GPLv3 (this project is GPL-3.0-or-later), so binaries may include it.
--- Shared on Linux so the package's own link test finds ALSA/Pulse/JACK; static on Windows so no DLL must be found at run time.
+-- Shared everywhere: on Linux the package's own link test needs it to find ALSA/Pulse/JACK, and on Windows a
+-- static RtAudio is built with the static C runtime (MT), which clashes with Qt's dynamic one (MD).
 -- Windows also uses the dynamic C runtime (MD) like Qt, otherwise the linker reports a RuntimeLibrary mismatch.
-local audio_configs = {asio = has_config("asio"), shared = is_plat("linux")}
+local audio_configs = {asio = has_config("asio"), shared = true}
 if is_plat("windows") then
     set_runtimes("MD")
     audio_configs.runtimes = "MD"
@@ -53,13 +54,22 @@ if is_plat("linux") then
     set_config("qt", "/usr", {force = false})
 end
 
--- A shared RtAudio built by xmake lives in its package dir, so executables need an rpath to find it.
+-- A shared RtAudio built by xmake lives in its package dir, so executables must be able to find it at run time:
+-- an rpath on Linux, and a copy of the DLL next to the executable on Windows.
 rule("rtaudio_rpath")
     on_load(function (target)
         local pkg = target:pkg("rtaudio")
         if pkg then
             for _, dir in ipairs(pkg:get("linkdirs") or {}) do
                 target:add("rpathdirs", dir)
+            end
+        end
+    end)
+    after_build(function (target)
+        local pkg = target:pkg("rtaudio")
+        if pkg and target:is_plat("windows", "mingw") then
+            for _, dll in ipairs(os.files(path.join(pkg:installdir(), "bin", "*.dll"))) do
+                os.cp(dll, target:targetdir())
             end
         end
     end)
