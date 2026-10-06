@@ -92,6 +92,8 @@ and `NO_COLOR`. Logging is not suitable for the audio callback.
 - `src/engine/audio/`: audio device ownership and the real-time path.
 - `src/engine/io/`: audio decoding and waveform peak data.
 - `src/engine/timeline/`: timeline data model, edit commands and undo history.
+- `src/engine/timeline/CompoundCommand.hpp/.cpp`: ordered edits validated on a scratch timeline with cloned commands.
+- `src/engine/timeline/ClipCommands.cpp`: clip edits, including composite `EditClip` move and trim.
 - `tests/audio/`: deterministic device-free lifecycle test.
 - `tests/io/`: generated audio and peak tests.
 - `tests/timeline/`: command, history, stress and range-query tests.

@@ -1,4 +1,5 @@
 #include "timeline/CommandSupport.hpp"
+#include "timeline/CompoundCommand.hpp"
 
 namespace wavy::timeline {
 using namespace detail;
@@ -148,6 +149,46 @@ void TrimClip::apply(Timeline& timeline) {
 void TrimClip::revert(Timeline& timeline) {
     assert(originalClip_);
     restoreClip(timeline, originalTrackId_, *originalClip_);
+}
+EditClip::EditClip(ClipId id, TrackId target, Frames start, Frames length)
+    : clipId_(id), targetTrackId_(target), start_(start), length_(length) {}
+std::unique_ptr<Command> EditClip::clone() const {
+    auto copy = std::make_unique<EditClip>(clipId_, targetTrackId_, start_, length_);
+    if (commands_)
+        copy->commands_ = commands_->clone();
+    return copy;
+}
+std::unique_ptr<Command> EditClip::steps(const Timeline& timeline) const {
+    const auto original = timeline.findClip(clipId_);
+    const auto oldStart = original->clip->start;
+    const auto oldEnd = oldStart + original->clip->length;
+    const bool leftTrim = start_ > oldStart && start_ + length_ == oldEnd;
+    std::vector<std::unique_ptr<Command>> commands;
+    if (leftTrim)
+        commands.push_back(std::make_unique<TrimClip>(clipId_, Edge::Left, start_));
+    const bool move = original->track->id != targetTrackId_ || (!leftTrim && oldStart != start_);
+    if (move)
+        commands.push_back(std::make_unique<MoveClip>(clipId_, targetTrackId_, start_));
+    const Frames end = start_ + length_;
+    if (!leftTrim && original->clip->length != length_)
+        commands.push_back(std::make_unique<TrimClip>(clipId_, Edge::Right, end));
+    return std::make_unique<CompoundCommand>("EditClip", std::move(commands));
+}
+Result EditClip::validate(const Timeline& timeline) const {
+    if (!timeline.findClip(clipId_) || !timeline.findTrack(targetTrackId_) ||
+        !validEnd(start_, length_))
+        return Error::InvalidClip;
+    return commands_ ? commands_->validate(timeline) : steps(timeline)->validate(timeline);
+}
+void EditClip::apply(Timeline& timeline) {
+    assert(validate(timeline));
+    if (!commands_)
+        commands_ = steps(timeline);
+    commands_->apply(timeline);
+}
+void EditClip::revert(Timeline& timeline) {
+    assert(commands_);
+    commands_->revert(timeline);
 }
 Result DuplicateClip::validate(const Timeline& timeline) const {
     const auto location = timeline.findClip(clipId_);

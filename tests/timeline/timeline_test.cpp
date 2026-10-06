@@ -1,5 +1,6 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "core/Log.hpp"
+#include "timeline/CompoundCommand.hpp"
 #include "timeline/History.hpp"
 #include <algorithm>
 #include <chrono>
@@ -94,6 +95,129 @@ TEST_CASE("Every edit restores exact state and replays the same ids") {
     roundTrip(timeline, mute);
     SetTrackSolo solo(a, true);
     roundTrip(timeline, solo);
+}
+TEST_CASE("Compound edits validate sequential state and restore ids and order") {
+    Timeline timeline;
+    const auto a = addTrack(timeline), b = addTrack(timeline);
+    const auto clip = addClip(timeline, a);
+    addClip(timeline, a, 10);
+    addClip(timeline, b, 3);
+    std::vector<std::unique_ptr<Command>> commands;
+    commands.push_back(std::make_unique<MoveTrack>(a, 1));
+    commands.push_back(std::make_unique<MoveClip>(clip, b, 50));
+    commands.push_back(std::make_unique<SplitClip>(clip, 60));
+    commands.push_back(std::make_unique<AddClip>(a, Clip{{}, "new", 10, 0, 5}));
+    CompoundCommand compound("edit", std::move(commands));
+    CHECK(compound.name() == "edit");
+    CHECK_FALSE(compound.mergeWith(compound));
+    const auto before = timeline;
+    REQUIRE(compound.validate(timeline));
+    REQUIRE(compound.validate(timeline));
+    CHECK(timeline == before);
+    roundTrip(timeline, compound);
+    AddClip next(a, {{}, "next", 0, 0, 1});
+    next.apply(timeline);
+    CHECK(next.createdClipId() == ClipId{6});
+}
+TEST_CASE("A failing middle compound step preserves timeline and both history branches") {
+    Timeline timeline;
+    const auto track = addTrack(timeline);
+    const auto clip = addClip(timeline, track);
+    History history(timeline);
+    REQUIRE(history.execute(std::make_unique<SetTrackMute>(track, true)));
+    REQUIRE(history.execute(std::make_unique<MoveClip>(clip, track, 50)));
+    REQUIRE(history.undo());
+    const auto before = timeline;
+    std::vector<std::unique_ptr<Command>> commands;
+    commands.push_back(std::make_unique<RemoveClip>(clip));
+    commands.push_back(std::make_unique<MoveClip>(clip, track, 0));
+    commands.push_back(std::make_unique<SetTrackSolo>(track, true));
+    CHECK(history.execute(std::make_unique<CompoundCommand>("bad", std::move(commands))).error() ==
+          Error::UnknownClip);
+    CHECK(timeline == before);
+    CHECK(history.canUndo());
+    CHECK(history.canRedo());
+    REQUIRE(history.redo());
+    CHECK(timeline.findClip(clip)->clip->start == 50);
+    REQUIRE(history.undo());
+    CHECK(timeline == before);
+    REQUIRE(history.undo());
+    CHECK_FALSE(timeline.findTrack(track)->muted);
+    CHECK_FALSE(history.canUndo());
+    std::vector<std::unique_ptr<Command>> allocating;
+    allocating.push_back(std::make_unique<AddClip>(track, Clip{{}, "new", 0, 0, 1}));
+    allocating.push_back(std::make_unique<RemoveTrack>(TrackId{99}));
+    allocating.push_back(std::make_unique<SetTrackMute>(track, true));
+    CHECK_FALSE(history.execute(std::make_unique<CompoundCommand>("bad", std::move(allocating))));
+    AddClip next(track, {{}, "next", 0, 0, 1});
+    next.apply(timeline);
+    CHECK(next.createdClipId() == ClipId{2});
+}
+TEST_CASE("EditClip moves and trims as one undo redo step") {
+    Timeline timeline;
+    const auto a = addTrack(timeline), b = addTrack(timeline);
+    const auto clip = addClip(timeline, a);
+    addClip(timeline, a, 10);
+    addClip(timeline, b, 50);
+    const auto before = timeline;
+    History history(timeline);
+    REQUIRE(history.execute(std::make_unique<EditClip>(clip, b, 50, 8)));
+    const auto location = timeline.findClip(clip);
+    CHECK(location->track->id == b);
+    CHECK(location->clip->start == 50);
+    CHECK(location->clip->length == 8);
+    CHECK(location->clip->sourceOffset == 5);
+    const auto after = timeline;
+    REQUIRE(history.undo());
+    CHECK(timeline == before);
+    CHECK_FALSE(history.canUndo());
+    REQUIRE(history.redo());
+    CHECK(timeline == after);
+    CHECK_FALSE(history.canRedo());
+    REQUIRE(history.undo());
+    EditClip left(clip, a, 14, 16);
+    roundTrip(timeline, left);
+    left.apply(timeline);
+    CHECK(timeline.findClip(clip)->clip->sourceOffset == 9);
+    left.revert(timeline);
+    EditClip right(clip, a, 10, 8);
+    roundTrip(timeline, right);
+    right.apply(timeline);
+    CHECK(timeline.findClip(clip)->clip->start == 10);
+    CHECK(timeline.findClip(clip)->clip->length == 8);
+    CHECK(timeline.findClip(clip)->clip->sourceOffset == 5);
+    right.revert(timeline);
+    EditClip move(clip, b, 50, 20);
+    roundTrip(timeline, move);
+    move.apply(timeline);
+    CHECK(timeline.findClip(clip)->track->id == b);
+    CHECK(timeline.findClip(clip)->clip->start == 50);
+    CHECK(timeline.findClip(clip)->clip->length == 20);
+    CHECK(timeline.findClip(clip)->clip->sourceOffset == 5);
+    move.revert(timeline);
+    EditClip leftMove(clip, b, 14, 16);
+    roundTrip(timeline, leftMove);
+    EditClip unchanged(clip, a, 10, 20);
+    roundTrip(timeline, unchanged);
+}
+TEST_CASE("EditClip rejects invalid ids and positions without changing history") {
+    Timeline timeline;
+    const auto track = addTrack(timeline);
+    const auto clip = addClip(timeline, track);
+    const auto before = timeline;
+    History history(timeline);
+    CHECK_FALSE(history.execute(std::make_unique<EditClip>(ClipId{99}, track, 0, 1)));
+    CHECK_FALSE(history.execute(std::make_unique<EditClip>(clip, TrackId{99}, 0, 1)));
+    CHECK_FALSE(history.execute(std::make_unique<EditClip>(clip, track, -1, 1)));
+    CHECK_FALSE(history.execute(std::make_unique<EditClip>(clip, track, 0, 0)));
+    CHECK_FALSE(history.execute(std::make_unique<EditClip>(clip, track, 0, -1)));
+    CHECK_FALSE(history.execute(
+        std::make_unique<EditClip>(clip, track, std::numeric_limits<Frames>::max(), 1)));
+    CHECK_FALSE(history.execute(
+        std::make_unique<EditClip>(clip, track, std::numeric_limits<Frames>::max() - 10, 1)));
+    CHECK(timeline == before);
+    CHECK_FALSE(history.canUndo());
+    CHECK_FALSE(history.canRedo());
 }
 TEST_CASE("Validation leaves timeline and history unchanged") {
     Timeline timeline;
@@ -253,7 +377,7 @@ TEST_CASE("Seeded random edits and undo redo preserve invariants") {
                     ids.push_back(c.id);
             const auto id = ids.empty() ? ClipId{999999} : ids[rng() % ids.size()];
             std::unique_ptr<Command> command;
-            switch (rng() % 13) {
+            switch (rng() % 14) {
             case 0:
                 command = std::make_unique<AddClip>(
                     track, Clip{{}, "random", Frames(rng() % 1000), 10, 50});
@@ -291,6 +415,9 @@ TEST_CASE("Seeded random edits and undo redo preserve invariants") {
                 break;
             case 11:
                 command = std::make_unique<AddTrack>("random");
+                break;
+            case 12:
+                command = std::make_unique<EditClip>(id, track, rng() % 1000, 1 + rng() % 100);
                 break;
             default:
                 command = timeline.tracks().size() > 1

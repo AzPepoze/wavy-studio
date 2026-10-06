@@ -2,60 +2,8 @@
 #include "timeline/Commands.hpp"
 #include <algorithm>
 #include <array>
-#include <limits>
 
 using namespace wavy::timeline;
-
-namespace {
-class EditClip final : public Command {
-  public:
-    EditClip(ClipId id, TrackId target, Frames start, Frames length)
-        : id_(id), target_(target), start_(start), length_(length) {}
-    Result validate(const Timeline& timeline) const override {
-        const auto clip = timeline.findClip(id_);
-        return clip && timeline.findTrack(target_) && start_ >= 0 && length_ > 0 &&
-                       length_ <= std::numeric_limits<Frames>::max() - start_
-                   ? Result{}
-                   : Result{Error::InvalidClip};
-    }
-    void apply(Timeline& timeline) override {
-        const auto original = timeline.findClip(id_);
-        const auto oldStart = original->clip->start;
-        const auto oldEnd = oldStart + original->clip->length;
-        const bool leftTrim = start_ > oldStart && start_ + length_ == oldEnd;
-        if (leftTrim) {
-            TrimClip trim(id_, Edge::Left, start_);
-            trim.apply(timeline);
-            commands_.push_back(std::make_unique<TrimClip>(std::move(trim)));
-        }
-        if (original->track->id != target_ || (!leftTrim && oldStart != start_)) {
-            MoveClip move(id_, target_, start_);
-            move.apply(timeline);
-            commands_.push_back(std::make_unique<MoveClip>(std::move(move)));
-        }
-        auto clip = timeline.findClip(id_);
-        const Frames end = start_ + length_;
-        if (clip->clip->start + clip->clip->length != end) {
-            TrimClip trim(id_, Edge::Right, end);
-            trim.apply(timeline);
-            commands_.push_back(std::make_unique<TrimClip>(std::move(trim)));
-        }
-    }
-    void revert(Timeline& timeline) override {
-        for (auto it = commands_.rbegin(); it != commands_.rend(); ++it)
-            (*it)->revert(timeline);
-        commands_.clear();
-    }
-    std::string_view name() const override { return "EditClip"; }
-
-  private:
-    ClipId id_;
-    TrackId target_;
-    Frames start_;
-    Frames length_;
-    std::vector<std::unique_ptr<Command>> commands_;
-};
-} // namespace
 
 TimelineModel::TimelineModel(QObject* parent) : QAbstractListModel(parent) {
     constexpr std::array names{"Drums", "Bass", "Keys", "Vocals"};

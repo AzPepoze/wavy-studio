@@ -25,6 +25,7 @@ class Result {
 class Command {
   public:
     virtual ~Command() = default;
+    virtual std::unique_ptr<Command> clone() const = 0;
     virtual Result validate(const Timeline&) const = 0;
     // Requires validate() to have succeeded against the current timeline.
     virtual void apply(Timeline&) = 0;
@@ -35,6 +36,7 @@ class Command {
 enum class Edge { Left, Right };
 class AddTrack final : public Command {
   public:
+    std::unique_ptr<Command> clone() const override { return std::make_unique<AddTrack>(*this); }
     explicit AddTrack(std::string name) : name_(std::move(name)) {}
     Result validate(const Timeline&) const override;
     void apply(Timeline&) override;
@@ -48,6 +50,7 @@ class AddTrack final : public Command {
 };
 class RemoveTrack final : public Command {
   public:
+    std::unique_ptr<Command> clone() const override { return std::make_unique<RemoveTrack>(*this); }
     explicit RemoveTrack(TrackId id) : trackId_(id) {}
     Result validate(const Timeline&) const override;
     void apply(Timeline&) override;
@@ -61,6 +64,7 @@ class RemoveTrack final : public Command {
 };
 class MoveTrack final : public Command {
   public:
+    std::unique_ptr<Command> clone() const override { return std::make_unique<MoveTrack>(*this); }
     explicit MoveTrack(TrackId id, size_t index) : trackId_(id), destinationIndex_(index) {}
     Result validate(const Timeline&) const override;
     void apply(Timeline&) override;
@@ -74,6 +78,7 @@ class MoveTrack final : public Command {
 };
 class AddClip final : public Command {
   public:
+    std::unique_ptr<Command> clone() const override { return std::make_unique<AddClip>(*this); }
     explicit AddClip(TrackId id, Clip clip) : trackId_(id), clip_(std::move(clip)) {}
     Result validate(const Timeline&) const override;
     void apply(Timeline&) override;
@@ -88,6 +93,7 @@ class AddClip final : public Command {
 };
 class RemoveClip final : public Command {
   public:
+    std::unique_ptr<Command> clone() const override { return std::make_unique<RemoveClip>(*this); }
     explicit RemoveClip(ClipId id) : clipId_(id) {}
     Result validate(const Timeline&) const override;
     void apply(Timeline&) override;
@@ -101,6 +107,7 @@ class RemoveClip final : public Command {
 };
 class MoveClip final : public Command {
   public:
+    std::unique_ptr<Command> clone() const override { return std::make_unique<MoveClip>(*this); }
     explicit MoveClip(ClipId id, TrackId track, Frames start)
         : clipId_(id), destinationTrackId_(track), newStart_(start) {}
     Result validate(const Timeline&) const override;
@@ -117,6 +124,7 @@ class MoveClip final : public Command {
 };
 class SplitClip final : public Command {
   public:
+    std::unique_ptr<Command> clone() const override { return std::make_unique<SplitClip>(*this); }
     explicit SplitClip(ClipId id, Frames at) : clipId_(id), splitFrame_(at) {}
     Result validate(const Timeline&) const override;
     void apply(Timeline&) override;
@@ -133,6 +141,7 @@ class SplitClip final : public Command {
 };
 class TrimClip final : public Command {
   public:
+    std::unique_ptr<Command> clone() const override { return std::make_unique<TrimClip>(*this); }
     explicit TrimClip(ClipId id, Edge edge, Frames at) : clipId_(id), edge_(edge), edgeFrame_(at) {}
     Result validate(const Timeline&) const override;
     void apply(Timeline&) override;
@@ -146,8 +155,28 @@ class TrimClip final : public Command {
     TrackId originalTrackId_;
     std::optional<Clip> originalClip_;
 };
+class EditClip final : public Command {
+  public:
+    EditClip(ClipId id, TrackId target, Frames start, Frames length);
+    std::unique_ptr<Command> clone() const override;
+    Result validate(const Timeline&) const override;
+    void apply(Timeline&) override;
+    void revert(Timeline&) override;
+    std::string_view name() const override { return "EditClip"; }
+
+  private:
+    std::unique_ptr<Command> steps(const Timeline&) const;
+    ClipId clipId_;
+    TrackId targetTrackId_;
+    Frames start_;
+    Frames length_;
+    std::unique_ptr<Command> commands_;
+};
 class DuplicateClip final : public Command {
   public:
+    std::unique_ptr<Command> clone() const override {
+        return std::make_unique<DuplicateClip>(*this);
+    }
     explicit DuplicateClip(ClipId id, std::optional<Frames> start = std::nullopt)
         : clipId_(id), newStart_(start) {}
     Result validate(const Timeline&) const override;
@@ -164,6 +193,7 @@ class DuplicateClip final : public Command {
 };
 class SetClipGain final : public Command {
   public:
+    std::unique_ptr<Command> clone() const override { return std::make_unique<SetClipGain>(*this); }
     explicit SetClipGain(ClipId id, float gain) : clipId_(id), newGain_(gain) {}
     Result validate(const Timeline&) const override;
     void apply(Timeline&) override;
@@ -178,6 +208,9 @@ class SetClipGain final : public Command {
 };
 class SetTrackGain final : public Command {
   public:
+    std::unique_ptr<Command> clone() const override {
+        return std::make_unique<SetTrackGain>(*this);
+    }
     explicit SetTrackGain(TrackId id, float gain) : trackId_(id), newGain_(gain) {}
     Result validate(const Timeline&) const override;
     void apply(Timeline&) override;
@@ -192,6 +225,9 @@ class SetTrackGain final : public Command {
 };
 class SetTrackMute final : public Command {
   public:
+    std::unique_ptr<Command> clone() const override {
+        return std::make_unique<SetTrackMute>(*this);
+    }
     explicit SetTrackMute(TrackId id, bool muted) : trackId_(id), newMuted_(muted) {}
     Result validate(const Timeline&) const override;
     void apply(Timeline&) override;
@@ -206,6 +242,9 @@ class SetTrackMute final : public Command {
 };
 class SetTrackSolo final : public Command {
   public:
+    std::unique_ptr<Command> clone() const override {
+        return std::make_unique<SetTrackSolo>(*this);
+    }
     explicit SetTrackSolo(TrackId id, bool solo) : trackId_(id), newSolo_(solo) {}
     Result validate(const Timeline&) const override;
     void apply(Timeline&) override;
