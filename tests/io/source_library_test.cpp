@@ -157,7 +157,8 @@ TEST_CASE("Failures publish once and bad generated specs fail") {
     }
     library.waitIdle();
     CHECK(failed);
-    // Double parentheses: doctest would otherwise stringify LoadError through our string_view toString().
+    // Double parentheses: doctest would otherwise stringify LoadError through our string_view
+    // toString().
     CHECK((library.error(missing) == wavy::LoadError::FileNotFound));
     CHECK((library.error("generated:bad:440") == wavy::LoadError::DecodeFailed));
     for (const auto& path : paths)
