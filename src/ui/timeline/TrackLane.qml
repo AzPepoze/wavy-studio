@@ -16,10 +16,12 @@ Rectangle {
     required property bool snapEnabled
     signal selected(var clip)
     signal cleared()
-    signal moved(var clip, real deltaFrames, real deltaY)
     signal trimmed(var clip, real leftDelta, real rightDelta)
     signal requested(var clip, string operation)
-    signal dragPreview(real frame, bool active)
+    signal clipDragStarted(var clip)
+    signal clipDragMoved(real sceneX, real sceneY)
+    signal clipDropped(var clip, real sceneX, real sceneY)
+    signal clipDragCancelled()
     clip: true
     color: alternate ? Theme.backgroundAlternate : Theme.background
     MouseArea { anchors.fill: parent; onClicked: root.cleared() }
@@ -47,10 +49,12 @@ Rectangle {
             x: clipData.startFrame * pixelsPerFrame - root.scrollX
             y: Theme.space8
             onActivated: root.selected(clipData)
-            onMoved: (deltaFrames, deltaY) => root.moved(clipData, deltaFrames, deltaY)
             onTrimmed: (leftDelta, rightDelta) => root.trimmed(clipData, leftDelta, rightDelta)
             onRequested: operation => root.requested(clipData, operation)
-            onDragPreview: (frame, active) => root.dragPreview(frame, active)
+            onDragStarted: clip => root.clipDragStarted(clip)
+            onDragMoved: (sceneX, sceneY) => root.clipDragMoved(sceneX, sceneY)
+            onDragDropped: (clip, sceneX, sceneY) => root.clipDropped(clip, sceneX, sceneY)
+            onDragCancelled: root.clipDragCancelled()
         }
     }
 }

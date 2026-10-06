@@ -9,12 +9,63 @@ Item {
     required property var timelineState
     property real snapFrame: 0
     property bool dragging: false
+    property var dragClip: null
+    property int dragRow: -1
+    property real dragFrame: 0
+    property bool dragOriginSet: false
+    property real dragOriginX: 0
+    property int dragSourceRow: -1
     readonly property int trackCount: tracks.count
+    readonly property bool draggingClip: dragClip !== null && dragRow >= 0
     signal selected(var clip, int trackId, int rowIndex)
     signal cleared()
-    signal moved(var clip, int rowIndex, real deltaFrames, real deltaY)
+    signal moved(var clip, int rowIndex, real startFrame)
     signal trimmed(var clip, int trackId, real leftDelta, real rightDelta)
     clip: true
+    function rowAt(sceneY: real): int {
+        const content = tracks.contentY + (mapFromItem(null, 0, sceneY).y - tracks.y);
+        return Math.max(0, Math.min(trackCount - 1, Math.floor(content / Theme.trackHeight)));
+    }
+    function snapStart(sceneX: real): real {
+        if (!dragClip) return 0;
+        const frames = (sceneX - dragOriginX) / root.timelineState.pixelsPerFrame;
+        const snapped = root.timelineState.snapEnabled ? Math.round(frames / root.timelineState.gridFrames) * root.timelineState.gridFrames : Math.round(frames);
+        return Math.max(0, dragClip.startFrame + snapped);
+    }
+    function beginClipDrag(clip: var): void {
+        dragClip = clip;
+        dragRow = -1;
+        dragFrame = clip.startFrame;
+        dragOriginSet = false;
+        dragSourceRow = -1;
+    }
+    function updateClipDrag(sceneX: real, sceneY: real): void {
+        if (!dragClip) return;
+        if (!dragOriginSet) {
+            dragOriginX = sceneX;
+            dragSourceRow = rowAt(sceneY);
+            dragOriginSet = true;
+        }
+        dragRow = rowAt(sceneY);
+        dragFrame = snapStart(sceneX);
+        snapFrame = dragFrame;
+        dragging = true;
+    }
+    function finishClipDrag(clip: var, sceneX: real, sceneY: real): void {
+        if (!dragClip || dragClip.clipId !== clip.clipId) {
+            cancelClipDrag();
+            return;
+        }
+        const row = rowAt(sceneY);
+        const start = snapStart(sceneX);
+        const changed = row !== dragSourceRow || start !== dragClip.startFrame;
+        cancelClipDrag();
+        if (changed) root.moved(clip, row, start);
+    }
+    function cancelClipDrag(): void {
+        dragClip = null; dragRow = -1; dragOriginSet = false;
+        dragSourceRow = -1; dragging = false;
+    }
     Text { text: "TRACKS"; x: Theme.space12; y: Theme.space8; color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
     TimeRuler {
         x: root.timelineState.headerWidth; width: root.timelineState.laneWidth
@@ -41,9 +92,11 @@ Item {
             selectedClipId: root.timelineState.selectedClipId; snapEnabled: root.timelineState.snapEnabled; viewportRevision: root.timelineState.viewportRevision
             onSelected: (clip, trackId, rowIndex) => root.selected(clip, trackId, rowIndex)
             onCleared: root.cleared()
-            onMoved: (clip, rowIndex, deltaFrames, deltaY) => root.moved(clip, rowIndex, deltaFrames, deltaY)
             onTrimmed: (clip, trackId, leftDelta, rightDelta) => root.trimmed(clip, trackId, leftDelta, rightDelta)
-            onDragPreview: (frame, active) => { root.snapFrame = frame; root.dragging = active; }
+            onClipDragStarted: clip => root.beginClipDrag(clip)
+            onClipDragMoved: (sceneX, sceneY) => root.updateClipDrag(sceneX, sceneY)
+            onClipDropped: (clip, sceneX, sceneY) => root.finishClipDrag(clip, sceneX, sceneY)
+            onClipDragCancelled: root.cancelClipDrag()
         }
     }
     Playhead {
@@ -55,6 +108,40 @@ Item {
         snap: true; y: Theme.rulerHeight; height: tracks.height
         x: root.timelineState.headerWidth + root.snapFrame * root.timelineState.pixelsPerFrame - root.timelineState.scrollX
         visible: root.dragging && root.timelineState.snapEnabled && x >= root.timelineState.headerWidth && x < root.width
+    }
+    Item {
+        id: dragLayer
+        objectName: "drag-layer"
+        x: root.timelineState.headerWidth; y: Theme.rulerHeight
+        width: root.timelineState.laneWidth; height: tracks.height
+        clip: true
+        visible: root.draggingClip
+        Rectangle {
+            objectName: "drop-highlight"
+            x: 0; width: parent.width
+            y: root.dragRow * Theme.trackHeight - tracks.contentY
+            height: Theme.trackHeight
+            color: Theme.laneHighlight
+        }
+        Rectangle {
+            id: ghost
+            objectName: "clip-ghost"
+            x: root.dragFrame * root.timelineState.pixelsPerFrame - root.timelineState.scrollX
+            y: root.dragRow * Theme.trackHeight - tracks.contentY + Theme.space8
+            width: Math.max(Theme.clipMinimumWidth, root.dragClip ? root.dragClip.durationFrames * root.timelineState.pixelsPerFrame : 0)
+            height: Theme.trackHeight - Theme.lineWidth - Theme.space8 * 2
+            radius: Theme.radius
+            color: Theme.trackPalette[((root.dragRow % Theme.trackPalette.length) + Theme.trackPalette.length) % Theme.trackPalette.length]
+            border.color: Theme.selection
+            border.width: Theme.lineWidth
+            opacity: 0.92
+            Text {
+                text: root.dragClip ? root.dragClip.name : ""
+                color: Theme.textPrimary; font.pixelSize: Theme.fontNormal
+                elide: Text.ElideRight
+                x: Theme.space12; y: Theme.space4; width: ghost.width - Theme.space12 * 2
+            }
+        }
     }
     ScrollBar {
         orientation: Qt.Horizontal
@@ -82,8 +169,10 @@ Item {
     WheelHandler {
         acceptedModifiers: Qt.KeyboardModifierMask
         onWheel: event => {
-            if (event.modifiers & Qt.ControlModifier) root.timelineState.zoom(Math.pow(Theme.zoomFactor, event.angleDelta.y / Theme.wheelStep), Math.max(0, event.x - root.timelineState.headerWidth));
-            else if ((event.modifiers & Qt.ShiftModifier) || event.angleDelta.x || event.pixelDelta.x) root.timelineState.scrollX = root.timelineState.clampScroll(root.timelineState.scrollX - (event.pixelDelta.x || event.angleDelta.x || event.angleDelta.y));
+            if (event.modifiers & Qt.ControlModifier) {
+                const delta = event.angleDelta.y !== 0 ? event.angleDelta.y : event.pixelDelta.y * 8;
+                root.timelineState.zoomSmooth(Math.pow(Theme.zoomPerWheelUnit, delta), Math.max(0, event.x - root.timelineState.headerWidth));
+            } else if ((event.modifiers & Qt.ShiftModifier) || event.angleDelta.x || event.pixelDelta.x) root.timelineState.scrollX = root.timelineState.clampScroll(root.timelineState.scrollX - (event.pixelDelta.x || event.angleDelta.x || event.angleDelta.y));
             else tracks.contentY = Math.max(0, Math.min(Math.max(0, tracks.contentHeight - tracks.height), tracks.contentY - (event.pixelDelta.y || event.angleDelta.y)));
             event.accepted = true;
         }

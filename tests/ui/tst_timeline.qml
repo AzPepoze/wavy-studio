@@ -182,5 +182,68 @@ Item {
             mouseClick(button, button.width / 2, button.height / 2);
             compare(view.snapEnabled, true);
         }
+        function test_drag_preview_highlight() {
+            let clip = clipItem(0);
+            tryVerify(() => clip !== undefined);
+            let from = clip.mapToItem(view, clip.width / 2, Theme.space12);
+            mousePress(view, from.x, from.y);
+            mouseMove(view, from.x, from.y + Theme.trackHeight);
+            let highlight = items(view, item => item.objectName === "drop-highlight")[0];
+            let ghost = items(view, item => item.objectName === "clip-ghost")[0];
+            let layer = items(view, item => item.objectName === "drag-layer")[0];
+            verify(highlight !== undefined && ghost !== undefined && layer !== undefined);
+            verify(layer.visible);
+            compare(Math.round(highlight.y), Theme.trackHeight);
+            compare(Math.round(ghost.y), Theme.trackHeight + Theme.space8);
+            // The ghost is drawn in the viewport overlay, not inside a single clipping lane.
+            verify(ghost.parent === layer);
+            mouseRelease(view, from.x, from.y + Theme.trackHeight);
+            tryVerify(() => clipData(1, 0) !== undefined);
+        }
+        function test_drag_clamps_to_nearest_track() {
+            let clip = clipItem(0);
+            tryVerify(() => clip !== undefined);
+            let from = clip.mapToItem(view, clip.width / 2, Theme.space12);
+            mousePress(view, from.x, from.y);
+            mouseMove(view, from.x, view.height - Theme.scrollbarHeight - 2);
+            mouseRelease(view, from.x, view.height - Theme.scrollbarHeight - 2);
+            tryVerify(() => clipData(3, 0) !== undefined);
+            verify(clipData(0, 0) === undefined);
+        }
+        function test_smooth_zoom_anchor_and_clamp() {
+            view.scrollX = 300;
+            let cursor = 200;
+            let seconds = (view.scrollX + cursor) / view.pixelsPerSecond;
+            view.zoomSmooth(Theme.zoomFactor, cursor);
+            tryCompare(view, "pixelsPerSecond", Theme.defaultZoom * Theme.zoomFactor, 1000);
+            fuzzyCompare((view.scrollX + cursor) / view.pixelsPerSecond, seconds, 0.000001);
+            view.zoomSmooth(1000000, cursor);
+            tryCompare(view, "pixelsPerSecond", Theme.maximumZoom, 1000);
+            view.zoomSmooth(0.0000001, cursor);
+            tryCompare(view, "pixelsPerSecond", Theme.minimumZoom, 1000);
+        }
+        function test_fader_gain_and_reset() {
+            let fader = items(view, item => item.objectName === "track-volume")[0];
+            verify(fader !== undefined);
+            compare(model.tracks.get(0).gain, 0);
+            let y = Math.round(fader.height / 2);
+            mouseClick(fader, Math.round(fader.width / 2), y);
+            let span = Math.max(1, fader.height - Theme.gainReadoutHeight - Theme.faderHandleHeight);
+            let expected = fader.positionToDb(1 - (y - Theme.faderHandleHeight / 2) / span);
+            tryVerify(() => Math.abs(model.tracks.get(0).gain - expected) < 0.2);
+            mouseDoubleClickSequence(fader, fader.width / 2, y);
+            tryVerify(() => Math.abs(model.tracks.get(0).gain) < 0.01);
+            compare(fader.value, model.tracks.get(0).gain);
+        }
+        function test_fader_wheel_and_keys() {
+            let fader = items(view, item => item.objectName === "track-volume")[0];
+            verify(fader !== undefined);
+            mouseDoubleClickSequence(fader, fader.width / 2, fader.height / 2);
+            mouseWheel(fader, fader.width / 2, fader.height / 2, 0, 120, Qt.NoButton, Qt.NoModifier);
+            tryVerify(() => model.tracks.get(0).gain > 0.4);
+            fader.forceActiveFocus();
+            keyClick(Qt.Key_Down);
+            tryVerify(() => model.tracks.get(0).gain < 0.6);
+        }
     }
 }

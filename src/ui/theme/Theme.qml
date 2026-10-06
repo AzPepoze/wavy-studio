@@ -31,6 +31,8 @@ QtObject {
     readonly property color danger: "#ff929e"
     readonly property color transparent: "transparent"
     readonly property color waveform: "#d8e5f5"
+    readonly property color laneHighlight: Qt.rgba(accent.r, accent.g, accent.b, 0.16)
+    readonly property real dragSourceOpacity: 0.35
     readonly property var trackPalette: ["#365d7b", "#655082", "#326759", "#785633", "#774c60", "#435e87", "#686131", "#3b666e"]
     readonly property int rackHeight: 300
     readonly property int space4: 4
@@ -70,5 +72,15 @@ QtObject {
     readonly property real minimumZoom: 0.1
     readonly property real maximumZoom: 720
     readonly property real zoomFactor: 1.2
+    readonly property real zoomPerWheelUnit: 1.0015
+    readonly property int zoomDuration: 110
     readonly property int wheelStep: 120
+    readonly property int faderWidth: 18
+    readonly property int faderColumnWidth: 40
+    readonly property int faderHeight: 52
+    readonly property int faderHandleHeight: 10
+    readonly property real gainMinimumDb: -60
+    readonly property real gainMaximumDb: 6
+    readonly property real gainFineStepDb: 0.5
+    readonly property int gainReadoutHeight: 14
 }

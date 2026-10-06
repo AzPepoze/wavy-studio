@@ -25,9 +25,9 @@ QtObject {
         timelineState.timelineModel.action(timelineState.selectedClipId, selectedTrackId, operation);
         if (operation === "delete") clear();
     }
-    function move(clip: var, row: int, delta: real, deltaY: real): void {
-        let target = Math.max(0, Math.min(trackCount - 1, row + Math.round(deltaY / timelineState.trackHeight)));
-        let start = Math.max(0, clip.startFrame + delta);
+    function move(clip: var, targetRow: int, startFrame: real): void {
+        let target = Math.max(0, Math.min(trackCount - 1, targetRow));
+        let start = Math.max(0, startFrame);
         if (timelineState.snapEnabled) start = Math.round(start / timelineState.gridFrames) * timelineState.gridFrames;
         timelineState.timelineModel.editClip(clip.clipId, timelineState.timelineModel.trackIdAt(target), start, clip.durationFrames);
         if (timelineState.selectedClipId === clip.clipId) {
@@ -57,8 +57,8 @@ QtObject {
         else if (event.key === Qt.Key_Minus) timelineState.zoomOut();
         else if (selectedClip && timelineState.selectedClipId >= 0 && [Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down].includes(event.key)) {
             let horizontal = event.key === Qt.Key_Left ? -timelineState.gridFrames : event.key === Qt.Key_Right ? timelineState.gridFrames : 0;
-            let vertical = event.key === Qt.Key_Up ? -timelineState.trackHeight : event.key === Qt.Key_Down ? timelineState.trackHeight : 0;
-            move(selectedClip, selectedRow, horizontal, vertical);
+            let vertical = event.key === Qt.Key_Up ? -1 : event.key === Qt.Key_Down ? 1 : 0;
+            move(selectedClip, selectedRow + vertical, selectedClip.startFrame + horizontal);
         } else event.accepted = false;
     }
 }

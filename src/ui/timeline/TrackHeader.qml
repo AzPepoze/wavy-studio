@@ -10,6 +10,7 @@ Rectangle {
     required property string name
     required property bool muted
     required property bool solo
+    required property real gain
     property bool selected: false
     signal selectedRequested()
     activeFocusOnTab: true
@@ -20,13 +21,14 @@ Rectangle {
     Keys.onSpacePressed: selectedRequested()
     TapHandler { onTapped: { root.forceActiveFocus(); root.selectedRequested(); } }
     signal stateRequested(string role, bool value)
+    signal gainRequested(real db)
     color: Theme.surface
     border.color: selected || activeFocus ? Theme.accent : Theme.border
     border.width: Theme.lineWidth
     Text {
         x: Theme.space12
         y: Theme.space8
-        width: root.width - Theme.space12 * 2
+        width: root.width - Theme.space12 * 2 - Theme.faderColumnWidth - Theme.space8
         text: root.name
         elide: Text.ElideRight
         color: Theme.textPrimary
@@ -43,5 +45,16 @@ Rectangle {
             trackName: root.name
         }
         ToggleButton { text: "S"; hint: "Solo " + root.name; checked: root.solo; onClicked: root.stateRequested("solo", checked) }
+    }
+    VolumeFader {
+        objectName: "track-volume"
+        x: root.width - width - Theme.space8
+        y: Theme.space8
+        width: Theme.faderColumnWidth
+        height: root.height - Theme.space8 * 2
+        value: root.gain
+        Accessible.name: "Track volume " + root.name
+        onMoved: db => root.gainRequested(db)
+        onResetRequested: root.gainRequested(0)
     }
 }

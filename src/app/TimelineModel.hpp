@@ -17,7 +17,7 @@ class TimelineModel final : public QAbstractListModel {
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
   public:
-    enum Role { TrackIdRole = Qt::UserRole + 1, NameRole, MutedRole, SoloRole };
+    enum Role { TrackIdRole = Qt::UserRole + 1, NameRole, MutedRole, SoloRole, GainRole };
     explicit TimelineModel(QObject* parent = nullptr);
     const wavy::timeline::Timeline& timeline() const { return timeline_; }
     bool commitTake(int trackId, const wavy::record::RecordedTake& take);
@@ -37,6 +37,9 @@ class TimelineModel final : public QAbstractListModel {
                               qint64 durationFrames);
     Q_INVOKABLE void action(int clipId, int trackId, const QString& operation);
     Q_INVOKABLE void setTrackState(int row, const QString& role, bool value);
+    // Gain is in decibels; the engine stores a linear factor. Repeated calls on the same track
+    // merge into one undo step.
+    Q_INVOKABLE void setTrackGain(int trackId, double db);
     Q_INVOKABLE int trackIdAt(int row) const;
     Q_INVOKABLE void addTrack(const QString& name);
     Q_INVOKABLE void undo();

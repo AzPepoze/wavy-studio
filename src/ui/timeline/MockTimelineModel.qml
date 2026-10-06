@@ -1,6 +1,5 @@
 // In-memory demo/stress implementation of the documented timeline contract. Set stress for 100 × 200 clips.
 import QtQuick
-import "../theme"
 
 QtObject {
     id: root
@@ -31,7 +30,7 @@ QtObject {
                 name: clip.name,
                 startFrame: clip.startFrame + clip.durationFrames,
                 durationFrames: clip.durationFrames,
-                color: clip.color
+                trackIndex: clip.trackIndex
             });
         if (operation === "split" && playheadFrame > clip.startFrame && playheadFrame < clip.startFrame + clip.durationFrames) {
             let end = clip.startFrame + clip.durationFrames;
@@ -41,7 +40,7 @@ QtObject {
                 name: clip.name,
                 startFrame: playheadFrame,
                 durationFrames: end - playheadFrame,
-                color: clip.color
+                trackIndex: clip.trackIndex
             });
         }
         clipsChangedForTrack(trackId);
@@ -54,6 +53,7 @@ QtObject {
             let clip = clips[key].splice(index, 1)[0];
             clip.startFrame = Math.round(Math.max(0, start));
             clip.durationFrames = Math.round(Math.max(1, duration));
+            clip.trackIndex = trackId;
             clips[trackId].push(clip);
             clipsChangedForTrack(Number(key));
             if (Number(key) !== trackId)
@@ -66,13 +66,13 @@ QtObject {
         clips = ({});
         nextId = 0;
         let count = stress ? 100 : 4;
-        let colors = Theme.trackPalette;
         for (let t = 0; t < count; ++t) {
             tracks.append({
                 trackId: t,
                 name: stress ? "Track " + (t + 1) : ["Drums", "Bass", "Keys", "Vocals"][t],
                 muted: false,
-                solo: false
+                solo: false,
+                gain: 0
             });
             clips[t] = [];
             let n = stress ? 200 : (t < 2 ? 3 : 2);
@@ -82,10 +82,17 @@ QtObject {
                     name: "Take " + (c + 1),
                     startFrame: (c * 3 + t * 0.4) * sampleRate,
                     durationFrames: sampleRate * 2.4,
-                    color: colors[t % colors.length]
+                    trackIndex: t
                 });
             clipsChangedForTrack(t);
         }
+    }
+    function setTrackGain(trackId: int, db: real): void {
+        for (let i = 0; i < tracks.count; ++i)
+            if (tracks.get(i).trackId === trackId) {
+                tracks.setProperty(i, "gain", db);
+                return;
+            }
     }
     function setTrackState(index: int, role: string, value: bool): void {
         tracks.setProperty(index, role, value);
