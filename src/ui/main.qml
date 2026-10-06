@@ -34,7 +34,10 @@ ApplicationWindow {
     TimelineView {
         anchors.fill: parent
         anchors.margins: 16
+        timelineModel: timelineModel
     }
+    Shortcut { sequence: "Ctrl+Z"; onActivated: timelineModel.undo() }
+    Shortcut { sequence: "Ctrl+Shift+Z"; onActivated: timelineModel.redo() }
     footer: ToolBar {
         background: Rectangle { color: "#252a35" }
         Label {

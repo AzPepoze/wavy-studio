@@ -1,4 +1,5 @@
 #include "EngineController.hpp"
+#include "TimelineModel.hpp"
 #include "core/Log.hpp"
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -41,10 +42,10 @@ int main(int argc, char* argv[]) {
     if (smoke)
         wavy::log::info("app", "Running --smoke-test");
     EngineController audio;
-    if (smoke && !audio.start())
-        return 1;
+    TimelineModel timeline;
     QQmlApplicationEngine qml;
     qml.rootContext()->setContextProperty("audioEngine", &audio);
+    qml.rootContext()->setContextProperty("timelineModel", &timeline);
     qml.load(QUrl(QStringLiteral("qrc:/ui/main.qml")));
     if (qml.rootObjects().isEmpty())
         return 1;
