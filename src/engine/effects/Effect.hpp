@@ -4,6 +4,18 @@
 #include <map>
 
 namespace wavy::effects {
+// True when every sample is finite. A NaN or infinity can stay inside a feedback loop forever, so
+// an effect that finds one in its output resets its state and outputs silence for that block.
+inline bool allFinite(const float* samples, std::size_t count) noexcept {
+    bool finite = true;
+    for (std::size_t i = 0; i < count; ++i)
+        finite &= std::isfinite(samples[i]);
+    return finite;
+}
+// Input samples that are NaN or infinite are treated as silence so they never enter a filter state.
+inline double finiteOrZero(float sample) noexcept {
+    return std::isfinite(sample) ? double(sample) : 0.0;
+}
 class Effect {
   public:
     virtual ~Effect() = default;

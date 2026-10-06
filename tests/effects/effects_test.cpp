@@ -607,7 +607,9 @@ TEST_CASE("Effects reject nonfinite samples and recover on the next block") {
                 effect->process(block.data(), 512);
                 for (float value : block)
                     REQUIRE(std::isfinite(value));
-                if (!std::isfinite(invalid))
+                // With every parameter at maximum an effect can be fully wet and long (a delay is
+                // 100% wet with a 2 s delay), so silence right after a reset is correct there.
+                if (!moving && !std::isfinite(invalid))
                     CHECK(std::any_of(block.begin(), block.end(), [](float v) { return v != 0; }));
             }
         }

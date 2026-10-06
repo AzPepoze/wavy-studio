@@ -114,7 +114,7 @@ void Reverb::process(float* stereo, std::size_t frames) noexcept {
     wet_.target(params_->get(6));
     dry_.target(params_->get(7));
     for (std::size_t frame = 0; frame < frames; ++frame) {
-        const double l = stereo[frame * 2], r = stereo[frame * 2 + 1];
+        const double l = finiteOrZero(stereo[frame * 2]), r = finiteOrZero(stereo[frame * 2 + 1]);
         if (currentDelay_ != targetDelay_)
             currentDelay_ += std::clamp(targetDelay_ - currentDelay_, -kMaxGlide, kMaxGlide);
         linePush(predelay_, (l + r) * .5);
@@ -143,6 +143,10 @@ void Reverb::process(float* stereo, std::size_t frames) noexcept {
         const double limit = double(std::numeric_limits<float>::max());
         stereo[frame * 2] = static_cast<float>(std::clamp(dry * l + wet * wetL, -limit, limit));
         stereo[frame * 2 + 1] = static_cast<float>(std::clamp(dry * r + wet * wetR, -limit, limit));
+    }
+    if (!allFinite(stereo, frames * 2)) {
+        reset();
+        std::fill_n(stereo, frames * 2, 0.f);
     }
 }
 } // namespace wavy::effects

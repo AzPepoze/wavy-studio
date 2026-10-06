@@ -36,7 +36,7 @@ void StereoWidth::process(float* stereo, std::size_t frames) noexcept {
     side_.target(std::pow(10., params_->get(2) / 20.));
     mono_.target(bassMono > 0 ? 1. : 0.);
     for (std::size_t frame = 0; frame < frames; ++frame) {
-        const double l = stereo[frame * 2], r = stereo[frame * 2 + 1];
+        const double l = finiteOrZero(stereo[frame * 2]), r = finiteOrZero(stereo[frame * 2 + 1]);
         const double mid = (l + r) * .5, side = (l - r) * .5;
         lowL_ = flush(lowL_ + coefficient * (l - lowL_));
         lowR_ = flush(lowR_ + coefficient * (r - lowR_));
@@ -54,6 +54,10 @@ void StereoWidth::process(float* stereo, std::size_t frames) noexcept {
         const double limit = double(std::numeric_limits<float>::max());
         stereo[frame * 2] = static_cast<float>(std::clamp(outL, -limit, limit));
         stereo[frame * 2 + 1] = static_cast<float>(std::clamp(outR, -limit, limit));
+    }
+    if (!allFinite(stereo, frames * 2)) {
+        reset();
+        std::fill_n(stereo, frames * 2, 0.f);
     }
 }
 } // namespace wavy::effects

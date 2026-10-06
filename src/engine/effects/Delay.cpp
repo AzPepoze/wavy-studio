@@ -97,7 +97,7 @@ void Delay::process(float* stereo, std::size_t frames) noexcept {
     mix_.target(params_->get(8));
     const double maximum = double(left_.buffer.size() - 2);
     for (std::size_t frame = 0; frame < frames; ++frame) {
-        const double l = stereo[frame * 2], r = stereo[frame * 2 + 1];
+        const double l = finiteOrZero(stereo[frame * 2]), r = finiteOrZero(stereo[frame * 2 + 1]);
         if (currentDelay_ != targetDelay_)
             currentDelay_ += std::clamp(targetDelay_ - currentDelay_, -kMaxGlide, kMaxGlide);
         const double wobble = modulation * std::sin(phase_);
@@ -124,6 +124,10 @@ void Delay::process(float* stereo, std::size_t frames) noexcept {
         stereo[frame * 2] = static_cast<float>(std::clamp((1 - mix) * l + mix * dl, -limit, limit));
         stereo[frame * 2 + 1] =
             static_cast<float>(std::clamp((1 - mix) * r + mix * dr, -limit, limit));
+    }
+    if (!allFinite(stereo, frames * 2)) {
+        reset();
+        std::fill_n(stereo, frames * 2, 0.f);
     }
 }
 } // namespace wavy::effects
