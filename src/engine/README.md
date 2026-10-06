@@ -41,6 +41,10 @@ subsystems get their own folder.
 - `effects/Delay.cpp`: rate-limited time glide, feedback filters and wet/dry mix.
 - `effects/StereoWidth.hpp`: mid/side stereo width interface with trims and bass mono.
 - `effects/StereoWidth.cpp`: smoothed width, mid/side gains and one-pole low-band mono fold.
+- `effects/Limiter.hpp`: look-ahead brick-wall peak limiter with atomic reduction meter.
+- `effects/Limiter.cpp`: sliding-window minimum, smoothed gain and exponential release.
+- `effects/DeEsser.hpp`: split/wide-band sibilance reducer with atomic reduction meter.
+- `effects/DeEsser.cpp`: band-pass detector, dB reduction attack/release and complementary split.
 
 `EffectFactory::slot()` creates the parameter owner. Keep slots in an `EffectChains`
 configuration keyed by `timeline::TrackId`, with a separate master vector, and pass
@@ -55,7 +59,10 @@ be edited/read live. Multiple parameter writes are independent, not transactiona
 Only the render thread may process/reset prepared DSP; reset/prepare otherwise
 require rendering stopped. RMS envelopes smooth stereo mean-square power; peak
 envelopes smooth the larger channel magnitude. Attack/release use e-folding time
-constants. Auto makeup compensates the static compression at 0 dBFS.
+constants. Auto makeup compensates the static compression at 0 dBFS. The limiter
+reports its fixed look-ahead as `latencyFrames()`, the de-esser's complementary
+IIR split has zero latency, and both expose the applied reduction through an
+atomic meter.
 
 Recording control runs on the engine control thread: start the engine, select a
 fresh path with `recorder().arm(path, channels)`, call `startAtFrame(frame)`, and

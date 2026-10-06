@@ -1,7 +1,9 @@
 #include "effects/Effect.hpp"
 #include "effects/Compressor.hpp"
+#include "effects/DeEsser.hpp"
 #include "effects/Delay.hpp"
 #include "effects/GainPan.hpp"
+#include "effects/Limiter.hpp"
 #include "effects/ParametricEq.hpp"
 #include "effects/Reverb.hpp"
 #include "effects/StereoWidth.hpp"
@@ -47,6 +49,8 @@ EffectFactory::EffectFactory() {
     registerType("delay", "Delay", [](auto p) { return std::make_unique<Delay>(p); });
     registerType("stereo_width", "Stereo Width",
                  [](auto p) { return std::make_unique<StereoWidth>(p); });
+    registerType("limiter", "Limiter", [](auto p) { return std::make_unique<Limiter>(p); });
+    registerType("de_esser", "De-esser", [](auto p) { return std::make_unique<DeEsser>(p); });
 }
 void EffectFactory::registerType(std::string id, std::string displayName, Create create) {
     for (auto& entry : entries_)
