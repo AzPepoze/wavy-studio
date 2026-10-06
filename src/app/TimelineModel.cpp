@@ -1,4 +1,5 @@
 #include "TimelineModel.hpp"
+#include "record/CommitTake.hpp"
 #include "timeline/Commands.hpp"
 #include <algorithm>
 #include <array>
@@ -191,4 +192,14 @@ void TimelineModel::addClip(int trackId, const QString& source, qint64 start, qi
     if (execute(std::make_unique<AddClip>(TrackId{static_cast<uint32_t>(trackId)},
                                           Clip{{}, source.toStdString(), start, 0, length})))
         emit clipsChangedForTrack(trackId);
+}
+
+bool TimelineModel::commitTake(int trackId, const wavy::record::RecordedTake& take) {
+    if (!wavy::record::commitTake(history_, TrackId{static_cast<uint32_t>(trackId)}, take))
+        return false;
+    emit historyChanged();
+    emit timelineChanged();
+    emit durationFramesChanged();
+    emit clipsChangedForTrack(trackId);
+    return true;
 }

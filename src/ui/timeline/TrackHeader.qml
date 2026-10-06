@@ -1,9 +1,12 @@
 // Track identity and mute/solo actions. Requires name and states; emits stateRequested(role, value).
 import QtQuick
 import "../theme"
+import "../record"
 
 Rectangle {
     id: root
+    property var recordingController: null
+    property int trackId: -1
     required property string name
     required property bool muted
     required property bool solo
@@ -25,6 +28,11 @@ Rectangle {
         y: Theme.rulerHeight + Theme.space4
         spacing: Theme.space4
         ToggleButton { text: "M"; hint: "Mute " + root.name; checked: root.muted; onClicked: root.stateRequested("muted", checked) }
+        ArmButton {
+            controller: root.recordingController
+            trackId: root.trackId
+            trackName: root.name
+        }
         ToggleButton { text: "S"; hint: "Solo " + root.name; checked: root.solo; onClicked: root.stateRequested("solo", checked) }
     }
 }

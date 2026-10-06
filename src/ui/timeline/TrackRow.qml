@@ -4,6 +4,7 @@ import "../theme"
 
 Item {
     id: root
+    property var recordingController: null
     required property var timelineModel
     required property int trackId
     required property int rowIndex
@@ -39,6 +40,7 @@ Item {
         function onClipsChangedForTrack(trackId: int): void { if (trackId === root.trackId) root.updateClips(true); }
     }
     TrackHeader {
+        recordingController: root.recordingController; trackId: root.trackId
         name: root.name; muted: root.muted; solo: root.solo
         width: Theme.headerWidth; height: root.height - Theme.lineWidth
         onStateRequested: (role, value) => root.timelineModel.setTrackState(root.rowIndex, role, value)

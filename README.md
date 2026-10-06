@@ -155,6 +155,15 @@ chain passed to `buildSnapshot`; slot parameter blocks are shared with the audio
 thread for live atomic edits. See `src/engine/README.md` for the control/render
 contract. Run the device-free tests with `xmake test effects_tests`.
 
+Arm a track with its circle button, choose an input and mono/stereo channels in
+Audio Settings, then press Record or R to punch in at the playhead. R is disabled
+while typing. Stop or R finishes the take and adds a latency-compensated clip in
+one undo step; the playhead remains at its end. Looping and transport seeking are
+disabled during recording. The input meter and elapsed time update during capture.
+Optional monitoring includes device latency. Takes use unique, Windows-safe names
+under `<Documents>/Wavy Studio/Recordings`; undo keeps the WAV on disk. Dropped
+frames produce a status warning while preserving the recorded prefix.
+
 The recording API, latency convention and crash recovery limits are documented
 in [the engine README](src/engine/README.md).
 

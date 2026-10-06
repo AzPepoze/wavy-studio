@@ -225,6 +225,9 @@ void AudioEngine::feedInputOffline(const float* input, std::size_t frames, float
         return;
     impl_->process(input, output, frames, channels);
 }
+std::string AudioEngine::outputApiName() const {
+    return impl_->device ? RtAudio::getApiDisplayName(impl_->device->getCurrentApi()) : "No device";
+}
 std::vector<std::string> AudioEngine::availableApis() {
     std::vector<RtAudio::Api> apis;
     RtAudio::getCompiledApi(apis);

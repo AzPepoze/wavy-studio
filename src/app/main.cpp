@@ -1,4 +1,9 @@
+// Qt's debugging banner runs before main and would make smoke tests noisy.
+#ifdef QT_QML_DEBUG
+#undef QT_QML_DEBUG
+#endif
 #include "EngineController.hpp"
+#include "RecordController.hpp"
 #include "SnapshotPublisher.hpp"
 #include "TimelineModel.hpp"
 #include "core/Log.hpp"
@@ -10,6 +15,9 @@
 #include <string_view>
 
 int main(int argc, char* argv[]) {
+    for (int i = 1; i < argc; ++i)
+        if (std::string_view(argv[i]) == "--smoke-test")
+            wavy::log::setSink([](std::string_view) {});
     qInstallMessageHandler(
         [](QtMsgType type, const QMessageLogContext& context, const QString& message) {
             auto level = wavy::log::Level::Info;
@@ -44,9 +52,11 @@ int main(int argc, char* argv[]) {
         wavy::log::info("app", "Running --smoke-test");
     TimelineModel timeline;
     EngineController audio(timeline);
+    RecordController recorder(timeline, audio);
     SnapshotPublisher publisher(timeline, audio.engine().mixer());
     QQmlApplicationEngine qml;
     qml.rootContext()->setContextProperty("audioEngine", &audio);
+    qml.rootContext()->setContextProperty("recorder", &recorder);
     qml.rootContext()->setContextProperty("timelineModel", &timeline);
     qml.load(QUrl(QStringLiteral("qrc:/ui/main.qml")));
     if (qml.rootObjects().isEmpty())

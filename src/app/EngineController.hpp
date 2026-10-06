@@ -17,13 +17,16 @@ class EngineController final : public QObject {
     explicit EngineController(
         TimelineModel& model, QObject* parent = nullptr,
         wavy::AudioEngine::DeviceMode mode = wavy::AudioEngine::DeviceMode::Default);
-    bool isRunning() const { return engine_.isRunning(); }
-    unsigned int sampleRate() const { return engine_.isRunning() ? engine_.sampleRate() : 48000; }
+    bool isRunning() const { return controlLocked_ ? cachedRunning_ : engine_.isRunning(); }
+    unsigned int sampleRate() const {
+        return controlLocked_ ? cachedRate_ : (engine_.isRunning() ? engine_.sampleRate() : 48000);
+    }
     bool playing() const { return transport_.isPlaying(); }
     qint64 positionFrames() const { return transport_.positionFrames(); }
     bool loopEnabled() const { return loopEnabled_; }
     QString playbackState() const;
     wavy::AudioEngine& engine() { return engine_; }
+    void setControlLocked(bool locked);
     Q_INVOKABLE void play();
     Q_INVOKABLE void pause();
     Q_INVOKABLE void togglePlay();
@@ -42,6 +45,9 @@ class EngineController final : public QObject {
     wavy::Transport& transport_;
     QTimer timer_;
     qint64 loopBegin_ = 0, loopEnd_ = 0;
+    bool controlLocked_ = false;
+    bool cachedRunning_ = false;
+    unsigned cachedRate_ = 48000;
     bool loopEnabled_ = false;
     bool stopped_ = true;
     bool updatingPosition_ = false;

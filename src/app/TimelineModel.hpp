@@ -3,6 +3,10 @@
 #include <QAbstractListModel>
 #include <QVariantList>
 
+namespace wavy::record {
+struct RecordedTake;
+}
+
 class TimelineModel final : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(int sampleRate READ sampleRate NOTIFY sampleRateChanged)
@@ -16,6 +20,7 @@ class TimelineModel final : public QAbstractListModel {
     enum Role { TrackIdRole = Qt::UserRole + 1, NameRole, MutedRole, SoloRole };
     explicit TimelineModel(QObject* parent = nullptr);
     const wavy::timeline::Timeline& timeline() const { return timeline_; }
+    bool commitTake(int trackId, const wavy::record::RecordedTake& take);
     Q_INVOKABLE void addClip(int trackId, const QString& source, qint64 start, qint64 length);
     int rowCount(const QModelIndex& parent = {}) const override;
     QVariant data(const QModelIndex& index, int role) const override;

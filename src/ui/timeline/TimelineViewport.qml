@@ -30,6 +30,7 @@ Item {
         model: root.timelineState.timelineModel.tracks
         ScrollBar.vertical: ScrollBar {}
         delegate: TrackRow {
+            recordingController: root.timelineState.recordingController
             required property int index
             width: tracks.width
             rowIndex: index; timelineModel: root.timelineState.timelineModel

@@ -22,6 +22,7 @@ Rectangle {
     property real scrollX: 0
     property int selectedClipId: -1
     readonly property real tickSeconds: Math.pow(2, Math.ceil(Math.log(Theme.tickSpacing / pixelsPerSecond) / Math.LN2))
+    property var recordingController: null
     property var timelineModel: MockTimelineModel {}
     readonly property int trackHeight: Theme.trackHeight
     property int viewportRevision: 0

@@ -2,51 +2,94 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "timeline"
+import "theme"
+import "record"
 
 ApplicationWindow {
     id: window
+    readonly property var recordingController: recorder
+    property bool closePending: false
+    onClosing: close => {
+        if (recordingController.recording || recordingController.busy) {
+            close.accepted = false;
+            closePending = true;
+            if (recordingController.recording && !recordingController.busy)
+                recordingController.stopRecording();
+        }
+    }
+    property string recordingMessage: ""
     readonly property var timeline: timelineModel
     visible: true
-    width: 960
-    height: 600
-    minimumWidth: 480
-    minimumHeight: 320
+    width: Theme.windowWidth
+    height: Theme.windowHeight
+    minimumWidth: Theme.minimumWindowWidth
+    minimumHeight: Theme.minimumWindowHeight
     title: "Wavy Studio"
-    color: "#181b22"
-    palette.window: "#181b22"
-    palette.windowText: "#e1e5ee"
-    palette.button: "#303644"
-    palette.buttonText: "#e1e5ee"
-    palette.base: "#222630"
-    palette.text: "#e1e5ee"
-    palette.highlight: "#739cec"
+    font.pixelSize: Theme.fontNormal
+    color: Theme.background
+    palette.window: Theme.background
+    palette.windowText: Theme.textPrimary
+    palette.button: Theme.surface
+    palette.buttonText: Theme.textPrimary
+    palette.base: Theme.backgroundAlternate
+    palette.text: Theme.textPrimary
+    palette.highlight: Theme.accent
 
     header: ToolBar {
-        background: Rectangle { color: "#252a35" }
+        implicitHeight: Theme.toolbarHeight + Theme.space16
+        background: Rectangle { color: Theme.surface }
         RowLayout {
             anchors.fill: parent
-            anchors.margins: 8
-            Label { text: "WAVY STUDIO"; font.bold: true; Layout.rightMargin: 20 }
-            Button { text: audioEngine.playing ? "Pause" : "Play"; onClicked: audioEngine.togglePlay() }
-            Button { text: "Stop"; onClicked: audioEngine.stop() }
+            anchors.margins: Theme.space8
+            Label { text: "WAVY STUDIO"; font.bold: true; Layout.rightMargin: Theme.space16 }
+            Button { enabled: !window.recordingController.busy && !window.recordingController.recording; Accessible.name: text; text: audioEngine.playing ? "Pause" : "Play"; onClicked: audioEngine.togglePlay() }
+            Button { text: "Stop"; Accessible.name: text; onClicked: window.recordingController.recording ? window.recordingController.stopRecording() : audioEngine.stop() }
+            RecordButton { controller: window.recordingController }
+            InputMeter { level: window.recordingController.inputPeak }
+            Label { visible: window.recordingController.recording; text: window.recordingController.elapsedSeconds.toFixed(1) + " s" }
+            Button { text: "⚙"; Accessible.name: "Audio settings"; onClicked: settings.open() }
             Item { Layout.fillWidth: true }
-            Label { text: "Transport"; color: "#9099ac" }
+            Label { text: "Transport"; color: Theme.textSecondary }
         }
     }
     TimelineView {
         anchors.fill: parent
-        anchors.margins: 16
+        anchors.margins: Theme.space16
         timelineModel: window.timeline
+        recordingController: window.recordingController
         onPlayPauseRequested: audioEngine.togglePlay()
     }
+    AudioSettings { id: settings; controller: window.recordingController; anchors.centerIn: Overlay.overlay }
+    Shortcut {
+        sequence: "R"
+        enabled: !settings.opened && !(window.activeFocusItem instanceof TextInput) && !(window.activeFocusItem instanceof TextEdit)
+        onActivated: window.recordingController.toggleRecord()
+    }
+    Connections {
+        target: window.recordingController
+        function onStateChanged(): void {
+            if (window.closePending && !window.recordingController.busy) {
+                if (window.recordingController.recording)
+                    window.recordingController.stopRecording();
+                else
+                    window.close();
+            }
+        }
+        function onErrorChanged(): void {
+            window.recordingMessage = window.recordingController.lastError;
+            messageTimer.restart();
+        }
+    }
+    Timer { id: messageTimer; interval: Theme.messageDuration; onTriggered: window.recordingMessage = "" }
     Shortcut { sequence: "Ctrl+Z"; onActivated: timelineModel.undo() }
     Shortcut { sequence: "Ctrl+Shift+Z"; onActivated: timelineModel.redo() }
     footer: ToolBar {
-        background: Rectangle { color: "#252a35" }
+        implicitHeight: Theme.toolbarHeight
+        background: Rectangle { color: Theme.surface }
         Label {
             anchors.fill: parent
-            anchors.margins: 8
-            text: audioEngine.playbackState + " • " + (audioEngine.positionFrames / audioEngine.sampleRate).toFixed(2) + " s • " + audioEngine.sampleRate + " Hz • " + (audioEngine.running ? "Device session open" : "Device closed")
+            anchors.margins: Theme.space8
+            text: window.recordingMessage || ((window.recordingController.recording ? "Recording" : audioEngine.playbackState) + " • " + (audioEngine.positionFrames / audioEngine.sampleRate).toFixed(2) + " s • " + audioEngine.sampleRate + " Hz • " + (audioEngine.running ? "Device session open" : "Device closed"))
         }
     }
 }

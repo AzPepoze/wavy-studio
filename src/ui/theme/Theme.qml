@@ -3,6 +3,20 @@ import QtQuick
 
 // Shared visual tokens for the timeline. Import ../theme and use Theme properties.
 QtObject {
+    readonly property color record: "#ed4257"
+    readonly property color meterGreen: "#53c58a"
+    readonly property color meterAmber: "#efba55"
+    readonly property int meterWidth: 120
+    readonly property int meterHeight: 12
+    readonly property int pulseDuration: 650
+    readonly property real pulseOpacity: 0.4
+    readonly property int peakHoldDuration: 1000
+    readonly property int messageDuration: 5000
+    readonly property int settingsWidth: 360
+    readonly property int windowWidth: 960
+    readonly property int windowHeight: 600
+    readonly property int minimumWindowWidth: 480
+    readonly property int minimumWindowHeight: 320
     readonly property color background: "#161a22"
     readonly property color backgroundAlternate: "#1b202a"
     readonly property color surface: "#252c38"

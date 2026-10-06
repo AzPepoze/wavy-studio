@@ -26,6 +26,7 @@ class AudioEngine {
     unsigned int sampleRate() const;
     bool isRunning() const;
     static std::vector<std::string> availableApis();
+    std::string outputApiName() const;
     std::vector<InputDeviceInfo> inputDevices() const;
     bool setInputDevice(unsigned id, unsigned firstChannel, unsigned channelCount);
     bool inputAvailable() const;
