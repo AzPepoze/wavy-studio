@@ -18,6 +18,8 @@ Qt-free C++ engine, built as the `wavy_engine` static library.
 - `record/Recorder.cpp`: punch-in, writer thread and continuous-prefix recovery.
 - `record/CommitTake.hpp`: recorded-take commit API.
 - `record/CommitTake.cpp`: validated AddClip through undo history.
+- `project/Project.hpp`: project save/load API, metadata and error codes.
+- `project/Project.cpp`: atomic JSON writer and validating reader for the timeline.
 
 `src/engine` is the include root, so headers are included as
 `"<folder>/<Name>.hpp"` (for example `"timeline/Timeline.hpp"`). New

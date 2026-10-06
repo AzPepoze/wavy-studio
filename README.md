@@ -7,7 +7,7 @@ Requirements: xmake 3.1.1+, a C++23 compiler and Qt 6 (Quick and QuickControls2)
 The audio loading API uses `std::expected`. A target sample rate of zero
 keeps the native rate. Peak queries use whole pyramid buckets, conservatively
 including boundary samples at the selected resolution.
-Dependencies (RtAudio 6.0.1, doctest, miniaudio) are fetched by xmake via `add_requires`.
+Dependencies (RtAudio 6.0.1, doctest, miniaudio, nlohmann_json) are fetched by xmake via `add_requires`.
 
 ## Linux
 
@@ -111,6 +111,9 @@ and `NO_COLOR`. Logging is not suitable for the audio callback.
 - `src/engine/record/CommitTake.cpp`: validated AddClip through undo history.
 - `tests/record/`: deterministic recording and disk throughput tests.
 - `tests/record/record_test.cpp`: SPSC concurrency, WAV recovery, punch-in, monitoring and allocation checks.
+- `src/engine/project/Project.hpp`: project save/load API, metadata and error codes.
+- `src/engine/project/Project.cpp`: atomic JSON writer and validating reader for the timeline.
+- `tests/project/`: round-trip, source-path, validation, atomic-save and performance tests.
 - `tests/audio/`: deterministic device-free lifecycle test.
 - `tests/io/`: generated audio and peak tests.
 - `tests/timeline/`: command, history, stress and range-query tests.

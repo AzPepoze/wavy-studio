@@ -4,6 +4,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace wavy::timeline {
@@ -56,6 +57,26 @@ class Timeline {
     bool operator==(const Timeline& other) const {
         return sampleRate == other.sampleRate && tracks_ == other.tracks_;
     }
+    // Next ids the command layer will hand out; zero means exhausted. Persisted so loading a
+    // project can never reuse an id.
+    TrackId nextTrackId() const { return nextTrack_; }
+    ClipId nextClipId() const { return nextClip_; }
+    // Builds a Timeline from persisted data (for example a loaded project file). Track and clip
+    // ids are taken as given, clips are sorted by (start, id), and the id counters are preserved.
+    // The caller is responsible for id uniqueness and validity; see project::loadProject.
+    class Restorer {
+      public:
+        explicit Restorer(unsigned sampleRate = 48000) : sampleRate_(sampleRate) {}
+        void addTrack(Track track);
+        void setCounters(TrackId nextTrack, ClipId nextClip);
+        [[nodiscard]] Timeline build();
+
+      private:
+        unsigned sampleRate_;
+        std::vector<Track> tracks_;
+        TrackId nextTrack_{1};
+        ClipId nextClip_{1};
+    };
 
   private:
     friend struct detail::CommandAccess;

@@ -50,6 +50,7 @@ else
 end
 add_requires("doctest")
 add_requires("miniaudio")
+add_requires("nlohmann_json")
 
 -- Override with xmake f --qt=<SDK directory> for Windows or another Qt SDK.
 if is_plat("linux") then
@@ -89,6 +90,7 @@ target("wavy_engine")
     add_deps("wavy_decoder")
     add_includedirs("src/engine", {public = true})
     add_packages("rtaudio", {public = true})
+    add_packages("nlohmann_json")
     if is_plat("linux") then
         add_syslinks("pthread", "dl", "m", {public = true})
     end
@@ -131,6 +133,14 @@ target("timeline_tests")
     add_packages("doctest", "rtaudio")
     add_files("tests/timeline/timeline_test.cpp")
     add_tests("timeline")
+
+target("project_tests")
+    set_kind("binary")
+    add_deps("wavy_engine")
+    add_rules("rtaudio_rpath")
+    add_packages("doctest", "rtaudio", "nlohmann_json")
+    add_files("tests/project/project_test.cpp")
+    add_tests("project")
 
 target("timeline_model_tests")
     set_kind("binary")

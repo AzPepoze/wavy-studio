@@ -63,4 +63,22 @@ std::vector<const Clip*> Timeline::clipsInRange(TrackId id, Frames begin, Frames
     query(query, 1, 0, track->clips.size());
     return result;
 }
+void Timeline::Restorer::addTrack(Track track) {
+    std::sort(track.clips.begin(), track.clips.end(), [](const Clip& a, const Clip& b) {
+        return a.start == b.start ? a.id < b.id : a.start < b.start;
+    });
+    tracks_.push_back(std::move(track));
+}
+void Timeline::Restorer::setCounters(TrackId nextTrack, ClipId nextClip) {
+    nextTrack_ = nextTrack;
+    nextClip_ = nextClip;
+}
+Timeline Timeline::Restorer::build() {
+    Timeline timeline;
+    timeline.sampleRate = sampleRate_;
+    timeline.tracks_ = std::move(tracks_);
+    timeline.nextTrack_ = nextTrack_;
+    timeline.nextClip_ = nextClip_;
+    return timeline;
+}
 } // namespace wavy::timeline
