@@ -1,7 +1,8 @@
 # Wavy Studio
 
-A C++23 / Qt 6 Quick desktop prototype with a Qt-free engine for timeline
-playback, per-track effects and audio recording. xmake is the supported build system.
+A C++23 / Qt 6 Quick audio workstation with an editable timeline, stereo
+playback, per-track effects and audio recording. The engine is Qt-free.
+xmake is the supported build system.
 
 Requirements: xmake 3.1.1+, a C++23 compiler and Qt 6 (Quick and QuickControls2).
 The audio loading API uses `std::expected`. A target sample rate of zero
@@ -119,8 +120,8 @@ and `NO_COLOR`. Logging is not suitable for the audio callback.
 - `tests/timeline/`: command, history, stress and range-query tests.
 - `src/app/EngineController.hpp`: QObject adapter exposed as `audioEngine`.
 - `src/app/main.cpp`: app startup and smoke-test mode.
-- `src/ui/main.qml`, `src/ui/ui.qrc`: dark placeholder UI embedded as resources.
-- `src/ui/timeline/`: virtualized mock timeline; Ctrl+wheel zooms at the pointer, wheel/Shift+wheel scroll horizontally, and the right scrollbar scrolls tracks.
+- `src/ui/main.qml`, `src/ui/ui.qrc`: dark timeline UI embedded as resources.
+- `src/ui/timeline/`: virtualized timeline; Ctrl+wheel zooms at the pointer, wheel/Shift+wheel scroll horizontally, and the right scrollbar scrolls tracks.
 - `MockTimelineModel.stress`: generates 100 tracks with 200 clips each; the adapter contract is documented at the top of `TimelineView.qml`.
 
 Timeline editing, history and queries run on the main thread. Range queries use
@@ -128,12 +129,24 @@ half-open intervals and include overlapping clips. Timeline equality compares
 visible state; ID allocation counters survive undo to prevent ID reuse.
 Validation returns a bool-like `Result` with an `Error` enum.
 
-Engine control methods run on one control thread. Repeated start/stop calls
-are safe. `sampleRate()` is zero while stopped and 48000 in no-device mode.
-If audio initialization or startup fails, `start()` still succeeds and the
-engine runs without a device. The test explicitly selects `DeviceMode::NoDevice`
-so it never opens hardware. Smoke mode starts the default engine, loads the
-actual QML and exits successfully after 100 ms; QML load failure returns 1.
+Play or Space toggles playback/pause; Stop returns to frame zero. Clicking or
+dragging the ruler seeks, and the playhead follows the transport at about 60 Hz.
+The status bar shows playback state, time, sample rate and device session state.
+Audio hardware opens lazily on first Play and stays open while paused or stopped.
+A device initialization failure leaves a silent no-device session; real hardware
+availability is not implied by an open session. Smoke mode loads the actual QML
+and exits after 100 ms without opening audio hardware.
+
+`SnapshotPublisher` coalesces timeline edits, undo/redo and track state changes
+at 20 ms intervals. It decodes sources on a worker and publishes immutable mixer
+snapshots on the control thread, which also collects retired snapshots. Pending
+and missing sources are silent. Sources are cached for the publisher's lifetime.
+The demo uses `generated:sine:<Hz>:0.2`; `saw`, `square` and deterministic `noise`
+are also supported, with an optional amplitude (default 0.2). Generated audio
+covers each source's required clip length and offset, and grows after longer edits.
+`EngineController` exposes play, pause, togglePlay, stop, seek and loop controls.
+App tests use `DeviceMode::NoDevice` and `renderOffline` to verify the same mixer
+path without hardware.
 
 Effect chains are prepared through `EffectChains` track-ID mappings and a master
 chain passed to `buildSnapshot`; slot parameter blocks are shared with the audio

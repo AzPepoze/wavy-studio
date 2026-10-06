@@ -50,7 +50,7 @@ Rectangle {
     onWidthChanged: refresh.start()
     Timer { id: refresh; interval: Theme.viewportDelay; onTriggered: root.viewportRevision++ }
     TimelineEditing { id: editing; timelineState: root; trackCount: viewport.trackCount }
-    TimelineKeyboard { editing: editing }
+    TimelineKeyboard { editing: editing; onPlayPauseRequested: root.playPauseRequested() }
     TimelineToolbar {
         width: root.width
         seconds: root.timelineModel.playheadFrame / root.timelineModel.sampleRate

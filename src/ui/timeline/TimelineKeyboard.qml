@@ -4,7 +4,11 @@ import QtQuick
 Item {
     id: root
     required property TimelineEditing editing
-    function press(key: int, modifiers: int): void { editing.handle({key: key, modifiers: modifiers, accepted: false}); }
+    signal playPauseRequested()
+    function press(key: int, modifiers: int): void {
+        if (key === Qt.Key_Space) root.playPauseRequested();
+        else editing.handle({key: key, modifiers: modifiers, accepted: false});
+    }
     Shortcut { sequence: "Space"; onActivated: root.press(Qt.Key_Space, Qt.NoModifier) }
     Shortcut { sequence: "Delete"; onActivated: root.press(Qt.Key_Delete, Qt.NoModifier) }
     Shortcut { sequence: "Ctrl+D"; onActivated: root.press(Qt.Key_D, Qt.ControlModifier) }

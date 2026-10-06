@@ -18,7 +18,7 @@ TimelineModel::TimelineModel(QObject* parent) : QAbstractListModel(parent) {
             const Frames start = static_cast<Frames>((c * 3 + t * 0.4) * sampleRate());
             history_.execute(std::make_unique<AddClip>(
                 tracks[t], Clip{{},
-                                "Take " + std::to_string(c + 1),
+                                "generated:sine:" + std::to_string(110 * (t + 1)) + ":0.2:12",
                                 start,
                                 0,
                                 static_cast<Frames>(sampleRate() * 2.4)}));
@@ -85,6 +85,7 @@ bool TimelineModel::execute(std::unique_ptr<Command> command) {
     if (!history_.execute(std::move(command)))
         return false;
     emit historyChanged();
+    emit timelineChanged();
     emit durationFramesChanged();
     return true;
 }
@@ -158,6 +159,7 @@ void TimelineModel::addTrack(const QString& name) {
 }
 
 void TimelineModel::notifyAllTracks() {
+    emit timelineChanged();
     if (rowCount())
         emit dataChanged(index(0), index(rowCount() - 1), {MutedRole, SoloRole});
     notifyTimeline();
@@ -183,4 +185,10 @@ void TimelineModel::redo() {
             return;
         notifyAllTracks();
     }
+}
+
+void TimelineModel::addClip(int trackId, const QString& source, qint64 start, qint64 length) {
+    if (execute(std::make_unique<AddClip>(TrackId{static_cast<uint32_t>(trackId)},
+                                          Clip{{}, source.toStdString(), start, 0, length})))
+        emit clipsChangedForTrack(trackId);
 }

@@ -1,4 +1,5 @@
 #include "EngineController.hpp"
+#include "SnapshotPublisher.hpp"
 #include "TimelineModel.hpp"
 #include "core/Log.hpp"
 #include <QGuiApplication>
@@ -41,8 +42,9 @@ int main(int argc, char* argv[]) {
     const bool smoke = app.arguments().contains("--smoke-test");
     if (smoke)
         wavy::log::info("app", "Running --smoke-test");
-    EngineController audio;
     TimelineModel timeline;
+    EngineController audio(timeline);
+    SnapshotPublisher publisher(timeline, audio.engine().mixer());
     QQmlApplicationEngine qml;
     qml.rootContext()->setContextProperty("audioEngine", &audio);
     qml.rootContext()->setContextProperty("timelineModel", &timeline);

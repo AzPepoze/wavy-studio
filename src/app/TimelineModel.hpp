@@ -15,6 +15,8 @@ class TimelineModel final : public QAbstractListModel {
   public:
     enum Role { TrackIdRole = Qt::UserRole + 1, NameRole, MutedRole, SoloRole };
     explicit TimelineModel(QObject* parent = nullptr);
+    const wavy::timeline::Timeline& timeline() const { return timeline_; }
+    Q_INVOKABLE void addClip(int trackId, const QString& source, qint64 start, qint64 length);
     int rowCount(const QModelIndex& parent = {}) const override;
     QVariant data(const QModelIndex& index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
@@ -35,6 +37,7 @@ class TimelineModel final : public QAbstractListModel {
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
   signals:
+    void timelineChanged();
     void sampleRateChanged();
     void durationFramesChanged();
     void playheadFrameChanged();
@@ -47,5 +50,5 @@ class TimelineModel final : public QAbstractListModel {
     void notifyAllTracks();
     wavy::timeline::Timeline timeline_;
     wavy::timeline::History history_{timeline_};
-    qint64 playheadFrame_ = 144000;
+    qint64 playheadFrame_ = 0;
 };

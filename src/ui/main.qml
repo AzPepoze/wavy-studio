@@ -4,6 +4,8 @@ import QtQuick.Layouts
 import "timeline"
 
 ApplicationWindow {
+    id: window
+    readonly property var timeline: timelineModel
     visible: true
     width: 960
     height: 600
@@ -25,8 +27,8 @@ ApplicationWindow {
             anchors.fill: parent
             anchors.margins: 8
             Label { text: "WAVY STUDIO"; font.bold: true; Layout.rightMargin: 20 }
-            Button { text: "Play"; enabled: !audioEngine.running; onClicked: audioEngine.start() }
-            Button { text: "Stop"; enabled: audioEngine.running; onClicked: audioEngine.stop() }
+            Button { text: audioEngine.playing ? "Pause" : "Play"; onClicked: audioEngine.togglePlay() }
+            Button { text: "Stop"; onClicked: audioEngine.stop() }
             Item { Layout.fillWidth: true }
             Label { text: "Transport"; color: "#9099ac" }
         }
@@ -34,7 +36,8 @@ ApplicationWindow {
     TimelineView {
         anchors.fill: parent
         anchors.margins: 16
-        timelineModel: timelineModel
+        timelineModel: window.timeline
+        onPlayPauseRequested: audioEngine.togglePlay()
     }
     Shortcut { sequence: "Ctrl+Z"; onActivated: timelineModel.undo() }
     Shortcut { sequence: "Ctrl+Shift+Z"; onActivated: timelineModel.redo() }
@@ -43,7 +46,7 @@ ApplicationWindow {
         Label {
             anchors.fill: parent
             anchors.margins: 8
-            text: audioEngine.running ? "Running • " + audioEngine.sampleRate + " Hz • Silent output" : "Stopped"
+            text: audioEngine.playbackState + " • " + (audioEngine.positionFrames / audioEngine.sampleRate).toFixed(2) + " s • " + audioEngine.sampleRate + " Hz • " + (audioEngine.running ? "Device session open" : "Device closed")
         }
     }
 }
