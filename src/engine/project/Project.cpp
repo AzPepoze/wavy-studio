@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <format>
 #include <fstream>
 #include <limits>
 #include <optional>
@@ -45,6 +46,10 @@ std::function<bool()> commitHook;
 ProjectError fail(ProjectError::Code code, std::string message) {
     return ProjectError{code, std::move(message)};
 }
+
+// JSON numbers are doubles, so a float such as 0.8f would print as 0.800000011920929. The shortest
+// decimal that round-trips the float is readable and reads back as exactly the same float.
+double readableFloat(float value) { return std::stod(std::format("{}", value)); }
 
 bool writeDurable(const fs::path& path, std::string_view bytes, std::string& error) {
 #ifdef _WIN32
@@ -595,7 +600,7 @@ json buildDocument(const timeline::Timeline& timeline, const ProjectMeta& meta,
         json trackObject = json::object();
         trackObject["id"] = track.id.value;
         trackObject["name"] = track.name;
-        trackObject["gain"] = track.gain;
+        trackObject["gain"] = readableFloat(track.gain);
         trackObject["muted"] = track.muted;
         trackObject["solo"] = track.solo;
         trackObject["extensions"] = json::object();
@@ -609,7 +614,7 @@ json buildDocument(const timeline::Timeline& timeline, const ProjectMeta& meta,
             clipObject["start"] = clip.start;
             clipObject["sourceOffset"] = clip.sourceOffset;
             clipObject["length"] = clip.length;
-            clipObject["gain"] = clip.gain;
+            clipObject["gain"] = readableFloat(clip.gain);
             clipObject["fadeIn"] = clip.fadeIn;
             clipObject["fadeOut"] = clip.fadeOut;
             clips.push_back(std::move(clipObject));

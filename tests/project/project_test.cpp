@@ -129,6 +129,15 @@ TEST_CASE("round trip preserves data, ids and counters") {
     CHECK(text.find("\"format\": \"wavy-studio-project\"") != std::string::npos);
     CHECK(text.find("\"version\": 1") != std::string::npos);
 
+    // Floats are written as their shortest decimal, not as 0.800000011920929, and read back
+    // exactly.
+    Timeline::Restorer restorer;
+    restorer.addTrack({TrackId{1}, "Bass", {}, 0.8f, false, false});
+    const Timeline gains = restorer.build();
+    const fs::path gainFile = temp.path / "gain.wavy";
+    REQUIRE(saveProject(gainFile, gains, meta));
+    CHECK(readText(gainFile).find("\"gain\": 0.8,") != std::string::npos);
+
     // A clip added after loading gets the next id, never one that existed before.
     AddClip fresh(loaded->timeline.tracks()[0].id, {{}, "audio/new.wav", 1000, 0, 10});
     REQUIRE(fresh.validate(loaded->timeline));
