@@ -92,6 +92,9 @@ and `NO_COLOR`. Logging is not suitable for the audio callback.
 - `src/engine/core/`: logging.
 - `src/engine/audio/`: audio device ownership and the real-time path.
 - `src/engine/io/`: audio decoding and waveform peak data.
+- `src/engine/io/SourceLibrary.hpp`: asynchronous source cache API and immutable audio/peak ownership.
+- `src/engine/io/SourceLibrary.cpp`: worker pool, generated waveforms and memory-budgeted LRU eviction.
+- `tests/io/source_library_test.cpp`: source loading, concurrency, generation, eviction and throughput tests.
 - `src/engine/timeline/`: timeline data model, edit commands and undo history.
 - `src/engine/timeline/CompoundCommand.hpp/.cpp`: ordered edits validated on a scratch timeline with cloned commands.
 - `src/engine/timeline/ClipCommands.cpp`: clip edits, including composite `EditClip` move and trim.

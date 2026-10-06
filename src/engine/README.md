@@ -5,6 +5,8 @@ Qt-free C++ engine, built as the `wavy_engine` static library.
 - `core/`: logging.
 - `audio/`: audio device ownership and the real-time path.
 - `io/`: audio decoding and waveform peak data.
+- `io/SourceLibrary.hpp`: asynchronous source cache API and immutable audio/peak ownership.
+- `io/SourceLibrary.cpp`: worker pool, generated waveforms and memory-budgeted LRU eviction.
 - `timeline/`: timeline data model, edit commands and undo history.
 - `timeline/CompoundCommand.hpp/.cpp`: ordered edits validated on a scratch timeline with cloned commands.
 - `timeline/ClipCommands.cpp`: clip edits, including composite `EditClip` move and trim.
