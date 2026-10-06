@@ -2,6 +2,7 @@
 #include "SnapshotPublisher.hpp"
 #include "TimelineModel.hpp"
 #include "audio/Mixer.hpp"
+#include "effects/Compressor.hpp"
 #include "timeline/Commands.hpp"
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -196,4 +197,62 @@ TEST_CASE("atomic effect parameters can be edited during offline rendering") {
         effects.setParameter(1, 0, "gain", i % 24 - 12);
     render.join();
     CHECK(prepared->parameters().get("gain") == 3);
+}
+
+TEST_CASE("Effects controller retains prepared slots and meter ownership across republishes") {
+    TimelineModel timeline;
+    EffectsController effects(timeline);
+    const int track = timeline.trackIdAt(0);
+    effects.addEffect(track, "compressor");
+    wavy::SourceCache cache;
+    for (const auto& t : timeline.timeline().tracks())
+        for (const auto& clip : t.clips)
+            cache.emplace(clip.source, nullptr);
+    auto first = wavy::buildSnapshot(timeline.timeline(), cache, effects.chains());
+    effects.observeSnapshot(*first);
+    auto second = wavy::buildSnapshot(timeline.timeline(), cache, effects.chains());
+    effects.observeSnapshot(*second);
+    REQUIRE(first->tracks[0].effects.size() == 1);
+    CHECK(first->tracks[0].effects[0].effect == second->tracks[0].effects[0].effect);
+    effects.setParameter(track, 0, "threshold", -30);
+    effects.setBypassed(track, 0, true);
+    auto bypassed = wavy::buildSnapshot(timeline.timeline(), cache, effects.chains());
+    CHECK(bypassed->tracks[0].effects[0].effect == first->tracks[0].effects[0].effect);
+    CHECK(bypassed->tracks[0].effects[0].bypassed);
+    CHECK(bypassed->tracks[0].effects[0].effect->parameters().get("threshold") == -30);
+    effects.removeEffect(track, 0);
+    CHECK(effects.gainReduction(track, 0) == 0);
+    CHECK(first->tracks[0].effects[0].effect.use_count() >= 3);
+}
+
+TEST_CASE("Snapshot publisher consumes the controller chain without copying its slots") {
+    TimelineModel timeline;
+    EffectsController effects(timeline);
+    const int track = timeline.trackIdAt(0);
+    effects.addEffect(track, "compressor");
+    effects.setParameter(track, 0, "threshold", -40);
+    const auto& slot = effects.chains().tracks.at({static_cast<unsigned>(track)})[0];
+    auto instance = slot.prepared(timeline.timeline().sampleRate, 512);
+    wavy::Mixer mixer;
+    SnapshotPublisher publisher(timeline, mixer);
+    publisher.setEffectsController(effects);
+    int publications = 0;
+    QObject::connect(&publisher, &SnapshotPublisher::published, [&] { ++publications; });
+    settle();
+    REQUIRE(publications > 0);
+    CHECK(slot.prepared(timeline.timeline().sampleRate, 512) == instance);
+    mixer.transport().play();
+    std::array<float, 1024> block;
+    for (int i = 0; i < 20; ++i)
+        mixer.render(block.data(), 512);
+    auto* compressor = dynamic_cast<wavy::effects::Compressor*>(instance.get());
+    REQUIRE(compressor);
+    REQUIRE(effects.gainReduction(track, 0) > 0);
+    CHECK(effects.gainReduction(track, 0) == compressor->gainReductionDb().load());
+    timeline.addTrack("republish");
+    settle();
+    CHECK(publications >= 2);
+    for (int i = 0; i < 20; ++i)
+        mixer.render(block.data(), 512);
+    CHECK(effects.gainReduction(track, 0) == compressor->gainReductionDb().load());
 }

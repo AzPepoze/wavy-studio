@@ -114,17 +114,18 @@ TEST_CASE("Clip positions, offsets, gains, fades and silence") {
         float expected = 0;
         if (i >= 3 && i < 11) {
             const int local = i - 3;
-            expected =
-                (local + 3) * .25f * std::min(1.f, local / 2.f) * std::min(1.f, (7 - local) / 2.f);
+            expected = (local + 3) * .25f * std::min(1.f, local / 48.f) *
+                       std::min(1.f, (7 - local) / 48.f) * i / 144.f;
         }
         CHECK(out[i * 2] == doctest::Approx(expected));
         CHECK(out[i * 2 + 1] == doctest::Approx(expected));
     }
-    mixer.transport().seek(6);
-    CHECK(render(mixer)[0] == doctest::Approx(1.5f));
     mixer.transport().pause();
+    render(mixer);
+    CHECK(mixer.transport().positionFrames() == 32);
+    mixer.transport().seek(6);
+    CHECK(mixer.transport().positionFrames() == 6);
     CHECK(render(mixer)[0] == 0);
-    CHECK(mixer.transport().positionFrames() == 22);
     mixer.transport().stop();
     CHECK(mixer.transport().positionFrames() == 0);
     CHECK(render(mixer)[0] == 0);
@@ -142,21 +143,23 @@ TEST_CASE("Overlaps, mute, solo and channel mapping") {
         mixer.publish(std::move(s));
         mixer.transport().play();
         auto out = render(mixer);
-        CHECK(out[0] == 2);
-        CHECK(out[1] == (channels == 1 ? 2 : 4));
+        CHECK(out[14] == doctest::Approx(2.f * 7 / 48 * 8 / 48 * 7 / 144));
+        CHECK(out[15] == doctest::Approx((channels == 1 ? 2.f : 4.f) * 7 / 48 * 8 / 48 * 7 / 144));
         auto solo = snapshot(audio);
         solo->tracks.push_back(solo->tracks[0]);
         solo->tracks[1].solo = true;
         solo->tracks[1].gain = 3;
         solo->anySolo = true;
-        mixer.publish(std::move(solo));
-        mixer.transport().seek(0);
-        CHECK(render(mixer)[0] == 3);
+        Mixer soloMixer;
+        soloMixer.publish(std::move(solo));
+        soloMixer.transport().play();
+        CHECK(render(soloMixer)[14] == doctest::Approx(3.f * 7 / 48 * 8 / 48 * 7 / 144));
         auto muted = snapshot(audio);
         muted->tracks[0].muted = true;
-        mixer.publish(std::move(muted));
-        mixer.transport().seek(0);
-        CHECK(render(mixer)[0] == 0);
+        Mixer mutedMixer;
+        mutedMixer.publish(std::move(muted));
+        mutedMixer.transport().play();
+        CHECK(render(mutedMixer)[14] == 0);
     }
 }
 TEST_CASE("Loop wrap is sample accurate across blocks") {
@@ -170,8 +173,12 @@ TEST_CASE("Loop wrap is sample accurate across blocks") {
     mixer.transport().play();
     for (int block = 0; block < 2; ++block) {
         auto out = render(mixer);
-        for (int i = 0; i < 16; ++i)
-            CHECK(out[i * 2] == 2 + (3 + block * 16 + i) % 5);
+        for (int i = 0; i < 16; ++i) {
+            const auto local = 2 + (3 + block * 16 + i) % 5;
+            const float expected =
+                local * (local / 48.f) * ((15 - local) / 48.f) * (block * 16 + i) / 144.f;
+            CHECK(out[i * 2] == doctest::Approx(expected));
+        }
     }
     CHECK(mixer.transport().positionFrames() == 2);
 }
@@ -182,7 +189,7 @@ TEST_CASE("Offline engine uses mixer and rendering never allocates or frees") {
     engine.mixer().transport().play();
     std::array<float, 32> out;
     engine.renderOffline(out.data(), 16);
-    CHECK(out[0] == 1);
+    CHECK(out[0] == 0);
     engine.mixer().publish(snapshot(source()));
     engine.mixer().transport().setLoop(0, 16);
     allocations = frees = 0;
@@ -195,19 +202,30 @@ TEST_CASE("Offline engine uses mixer and rendering never allocates or frees") {
 }
 TEST_CASE("Concurrent publication retires all source owners on the control thread") {
     std::atomic<unsigned> destroyed{0};
-    std::atomic<bool> wrongThread{false}, done{false}, finite{true};
+    std::atomic<bool> wrongThread{false}, done{false}, finite{true}, memoryClean{true};
     const auto control = std::this_thread::get_id();
     {
         Mixer mixer;
+        auto prepared = effects::EffectFactory{}.create("delay");
+        prepared->parameters().set("time", 10);
+        prepared->prepare(48000, 512);
+        auto effect = std::shared_ptr<effects::Effect>(prepared.release(), [&](auto* p) {
+            if (std::this_thread::get_id() != control)
+                wrongThread.store(true);
+            delete p;
+        });
         mixer.transport().play();
         std::thread consumer([&] {
             std::array<float, 1024> out;
             while (!done.load()) {
+                countMemory = true;
                 mixer.render(out.data(), 512);
+                countMemory = false;
                 for (auto sample : out)
                     if (!std::isfinite(sample))
                         finite.store(false);
             }
+            memoryClean.store(allocations == 0 && frees == 0);
         });
         for (unsigned i = 0; i < 1000; ++i) {
             auto audio = std::shared_ptr<AudioBuffer>(
@@ -217,18 +235,23 @@ TEST_CASE("Concurrent publication retires all source owners on the control threa
                     ++destroyed;
                     delete p;
                 });
-            mixer.publish(snapshot(std::move(audio)));
+            auto next = snapshot(std::move(audio));
+            next->tracks[0].effects.push_back({effect, false});
+            mixer.publish(std::move(next));
+            effect->parameters().set("feedback", float(i % 9) / 10);
             mixer.transport().seek(0);
             mixer.transport().setLoop(0, 16);
         }
         done.store(true);
         consumer.join();
         mixer.publish(std::make_unique<Snapshot>());
-        render(mixer);
+        std::array<float, 1024> drain;
+        mixer.render(drain.data(), 512);
         mixer.collectRetired();
         CHECK(destroyed.load() == 1000);
     }
     CHECK(finite.load());
+    CHECK(memoryClean.load());
     CHECK_FALSE(wrongThread.load());
 }
 TEST_CASE("64 tracks with four overlapping sine clips performance") {
@@ -272,10 +295,10 @@ TEST_CASE("Source exhaustion and nonfinite inputs leave finite output") {
     mixer.publish(snapshot(audio));
     mixer.transport().play();
     auto out = render(mixer);
-    CHECK(out[0] == 1);
+    CHECK(out[0] == 0);
     CHECK(out[2] == 0);
     CHECK(out[4] == 0);
-    CHECK(out[6] == 1);
+    CHECK(out[6] == 0);
     for (std::size_t i = 8; i < out.size(); ++i)
         CHECK(out[i] == 0);
     mixer.transport().seek(std::numeric_limits<std::int64_t>::max());
@@ -285,8 +308,8 @@ TEST_CASE("Source exhaustion and nonfinite inputs leave finite output") {
 }
 TEST_CASE("Mixer fade regions match the sample-wise reference across seeks and loops") {
     for (unsigned channels : {1u, 2u})
-        for (std::int64_t fadeIn : {0, 1, 7, 20})
-            for (std::int64_t fadeOut : {0, 1, 8, 20}) {
+        for (std::int64_t fadeIn : {0, 1, 7, 20, 80})
+            for (std::int64_t fadeOut : {0, 1, 8, 20, 90}) {
                 auto audio = source(channels, 19);
                 for (std::size_t i = 0; i < audio->samples.size(); ++i)
                     audio->samples[i] = .1f * float(i + 1);
@@ -297,19 +320,19 @@ TEST_CASE("Mixer fade regions match the sample-wise reference across seeks and l
                 clip.sourceOffset = 2;
                 clip.fadeIn = fadeIn;
                 clip.fadeOut = fadeOut;
-                Mixer mixer;
-                mixer.publish(std::move(s));
-                mixer.transport().play();
                 for (std::int64_t seek : {0, 4, 10, 18, 30, 2}) {
+                    Mixer mixer;
+                    mixer.publish(std::make_unique<Snapshot>(*s));
                     mixer.transport().seek(seek);
+                    mixer.transport().play();
                     auto out = render(mixer);
                     for (std::size_t i = 0; i < 16; ++i) {
                         const auto local = seek + static_cast<std::int64_t>(i) - 3;
                         double gain = double(.7f) * .6f;
-                        if (fadeIn)
-                            gain *= std::min(1., double(local) / fadeIn);
-                        if (fadeOut)
-                            gain *= std::min(1., double(20 - local) / fadeOut);
+                        gain *= std::min(1., double(local) / std::max<std::int64_t>(48, fadeIn));
+                        gain *=
+                            std::min(1., double(16 - local) / std::max<std::int64_t>(48, fadeOut));
+                        gain *= double(i) / 144;
                         for (unsigned c = 0; c < 2; ++c) {
                             const float expected =
                                 local >= 0 && local < 17
@@ -321,16 +344,18 @@ TEST_CASE("Mixer fade regions match the sample-wise reference across seeks and l
                         }
                     }
                 }
+                Mixer mixer;
+                mixer.publish(std::move(s));
                 mixer.transport().setLoop(4, 11);
                 mixer.transport().seek(4);
+                mixer.transport().play();
                 auto out = render(mixer);
                 for (std::size_t i = 0; i < 16; ++i) {
                     const auto local = 1 + i % 7;
                     double gain = double(.7f) * .6f;
-                    if (fadeIn)
-                        gain *= std::min(1., double(local) / fadeIn);
-                    if (fadeOut)
-                        gain *= std::min(1., double(20 - local) / fadeOut);
+                    gain *= std::min(1., double(local) / std::max<std::int64_t>(48, fadeIn));
+                    gain *= std::min(1., double(16 - local) / std::max<std::int64_t>(48, fadeOut));
+                    gain *= double(i) / 144;
                     for (unsigned c = 0; c < 2; ++c)
                         CHECK(out[i * 2 + c] ==
                               doctest::Approx(
@@ -363,4 +388,179 @@ TEST_CASE("Mixer silences nonfinite mono and stereo samples with master effects"
             for (float sample : out)
                 CHECK(std::isfinite(sample));
         }
+}
+
+TEST_CASE("Transport and snapshot edits bound sine steps without render allocations") {
+    constexpr float amplitude = .5f;
+    constexpr double frequency = 100, rate = 48000;
+    auto audio = source(1, 200000);
+    for (std::size_t i = 0; i < audio->samples.size(); ++i)
+        audio->samples[i] = amplitude * std::sin(2 * std::acos(-1.) * frequency * i / rate);
+    Mixer mixer;
+    mixer.publish(snapshot(audio, 0, 190000));
+    mixer.transport().play();
+    std::array<float, 128> out;
+    float previous = 0, brokenPrevious = 0, maximum = 0, brokenMaximum = 0;
+    std::int64_t brokenPosition = 0, brokenOffset = 0, brokenStart = 0;
+    bool brokenPlaying = true;
+    allocations = frees = 0;
+    for (int block = 0; block < 400; ++block) {
+        if (block % 11 == 0) {
+            brokenPosition = 1000 + (block * 7919) % 100000;
+            mixer.transport().seek(brokenPosition);
+        }
+        if (block % 13 == 0) {
+            brokenStart = block % 2 ? 100 : 0;
+            brokenOffset = block % 3 ? 250 : 0;
+            auto next = snapshot(audio, brokenStart, 190000);
+            next->tracks[0].clips[0].sourceOffset = brokenOffset;
+            mixer.publish(std::move(next));
+        }
+        if (block % 31 == 0) {
+            mixer.transport().pause();
+            brokenPlaying = false;
+        } else if (block % 31 == 3) {
+            mixer.transport().play();
+            brokenPlaying = true;
+        }
+        if (block % 89 == 0) {
+            mixer.transport().stop();
+            brokenPosition = 0;
+            brokenPlaying = false;
+        } else if (block % 89 == 4) {
+            mixer.transport().play();
+            brokenPlaying = true;
+        }
+        countMemory = true;
+        mixer.render(out.data(), 64);
+        countMemory = false;
+        for (std::size_t i = 0; i < 64; ++i) {
+            maximum = std::max(maximum, std::abs(out[i * 2] - previous));
+            previous = out[i * 2];
+            const auto local = brokenPosition - brokenStart;
+            const float broken = brokenPlaying && local >= 0 && local < 190000
+                                     ? audio->samples[local + brokenOffset]
+                                     : 0;
+            brokenMaximum = std::max(brokenMaximum, std::abs(broken - brokenPrevious));
+            brokenPrevious = broken;
+            if (brokenPlaying)
+                ++brokenPosition;
+        }
+    }
+    const double bound = amplitude * 2 * std::acos(-1.) * frequency / rate + amplitude / 144 +
+                         2 * amplitude / 192 + 2 * amplitude / 48;
+    log::info("declick", "sine maximum step {} / broken {} / bound {}", maximum, brokenMaximum,
+              bound);
+    CHECK(maximum < bound);
+    CHECK(brokenMaximum > bound * 10);
+    CHECK(allocations == 0);
+    CHECK(frees == 0);
+}
+
+TEST_CASE("Clip edges reach silence within one millisecond and interior samples stay exact") {
+    for (unsigned rate : {44100u, 48000u, 96000u}) {
+        auto audio = source(2, rate / 10);
+        audio->sampleRate = rate;
+        timeline::Timeline timeline;
+        timeline.sampleRate = rate;
+        timeline::AddTrack track("edges");
+        track.apply(timeline);
+        timeline::Clip clip;
+        clip.source = "dc";
+        clip.start = rate / 100;
+        clip.length = rate / 50;
+        timeline::AddClip add(track.trackId(), clip);
+        add.apply(timeline);
+        Mixer mixer;
+        mixer.publish(buildSnapshot(timeline, {{"dc", audio}}));
+        mixer.transport().play();
+        std::vector<float> out(rate / 10 * 2);
+        mixer.render(out.data(), rate / 10);
+        const auto fade = rate / 1000;
+        CHECK(out[clip.start * 2] == 0);
+        CHECK(out[(clip.start + clip.length - 1) * 2] == 0);
+        for (unsigned i = 1; i <= fade; ++i) {
+            CHECK(out[(clip.start + i) * 2] == doctest::Approx(float(i) / fade));
+            CHECK(out[(clip.start + clip.length - 1 - i) * 2] == doctest::Approx(float(i) / fade));
+        }
+        for (auto i = clip.start + fade; i < clip.start + clip.length - 1 - fade; ++i)
+            CHECK(out[i * 2] == 1);
+    }
+}
+
+TEST_CASE("Transport jumps only at silence and pause position freezes after its ramp") {
+    Mixer mixer;
+    mixer.publish(snapshot(source(1, 48000), 0, 48000));
+    mixer.transport().play();
+    std::array<float, 1024> out;
+    mixer.render(out.data(), 512);
+    CHECK(out[0] == 0);
+    CHECK(out[288] == 1);
+    mixer.transport().seek(10000);
+    mixer.render(out.data(), 144);
+    CHECK(out[0] == 1);
+    CHECK(out[286] == doctest::Approx(1.f / 144));
+    CHECK(mixer.transport().positionFrames() == 10000);
+    mixer.render(out.data(), 144);
+    CHECK(out[0] == 0);
+    CHECK(out[286] == doctest::Approx(143.f / 144));
+    mixer.transport().pause();
+    mixer.render(out.data(), 72);
+    CHECK(mixer.transport().positionFrames() == 10216);
+    mixer.render(out.data(), 144);
+    CHECK(mixer.transport().positionFrames() == 10288);
+    CHECK(out[142] == doctest::Approx(1.f / 144));
+    CHECK(out[144] == 0);
+    mixer.render(out.data(), 144);
+    CHECK(mixer.transport().positionFrames() == 10288);
+    mixer.transport().play();
+    mixer.render(out.data(), 512);
+    mixer.transport().stop();
+    mixer.render(out.data(), 144);
+    CHECK(out[0] == 1);
+    CHECK(mixer.transport().positionFrames() == 0);
+    mixer.render(out.data(), 512);
+    for (auto sample : out)
+        CHECK(sample == 0);
+}
+
+TEST_CASE("Render partitioning leaves transport and snapshot fades sample exact") {
+    auto audio = source(1, 48000);
+    for (std::size_t i = 0; i < audio->samples.size(); ++i)
+        audio->samples[i] = .5f * std::sin(float(i) * .01f);
+    Mixer blocks, samples;
+    auto publish = [&](bool moved) {
+        auto a = snapshot(audio, moved ? 30 : 0, 47000);
+        auto b = snapshot(audio, moved ? 30 : 0, 47000);
+        blocks.publish(std::move(a));
+        samples.publish(std::move(b));
+    };
+    publish(false);
+    blocks.transport().play();
+    samples.transport().play();
+    std::array<float, 1024> a, b;
+    for (int block = 0; block < 8; ++block) {
+        if (block == 1)
+            publish(true);
+        if (block == 2) {
+            blocks.transport().seek(10000);
+            samples.transport().seek(10000);
+        }
+        if (block == 3) {
+            blocks.transport().pause();
+            samples.transport().pause();
+        }
+        if (block == 4) {
+            blocks.transport().play();
+            samples.transport().play();
+        }
+        blocks.render(a.data(), 512);
+        for (std::size_t i = 0; i < 512; ++i)
+            samples.render(b.data() + i * 2, 1);
+        for (std::size_t i = 0; i < a.size(); ++i)
+            CHECK(a[i] == b[i]);
+        CHECK(blocks.transport().positionFrames() == samples.transport().positionFrames());
+        blocks.collectRetired();
+        samples.collectRetired();
+    }
 }

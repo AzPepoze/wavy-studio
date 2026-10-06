@@ -12,28 +12,31 @@ std::unique_ptr<Snapshot> buildSnapshot(const timeline::Timeline& timeline,
         throw std::invalid_argument("Empty effect block capacity");
     auto result = std::make_unique<Snapshot>();
     result->maxBlockFrames = maxBlockFrames;
-    const effects::EffectFactory factory;
-    auto prepare = [&](const auto& slots) {
+    result->sampleRate = timeline.sampleRate;
+    result->scratch.resize(maxBlockFrames * 2);
+    auto prepare = [&](const auto& slots, auto& previous) {
+        std::vector<const effects::ParameterSet*> structure;
+        for (const auto& slot : slots)
+            structure.push_back(slot.params.get());
+        // Crossfading a structural edit requires disjoint state in the two chain versions.
+        if (!previous.empty() && previous != structure)
+            for (const auto& slot : slots)
+                slot.invalidate();
+        previous = std::move(structure);
         std::vector<PreparedEffect> chain;
-        for (const auto& slot : slots) {
-            if (!slot.params)
-                throw std::invalid_argument("Effect slot requires shared parameters");
-            auto effect = factory.create(slot.typeId, slot.params);
-            if (!effect)
-                throw std::invalid_argument("Unknown effect type");
-            effect->prepare(timeline.sampleRate, maxBlockFrames);
-            chain.push_back({std::move(effect), slot.bypassed});
-        }
+        for (const auto& slot : slots)
+            chain.push_back(
+                {slot.prepared(timeline.sampleRate, maxBlockFrames, &slots), slot.bypassed});
         return chain;
     };
-    result->masterEffects = prepare(chains.master);
+    result->masterEffects = prepare(chains.master, chains.masterStructure);
     SourceCache loaded;
     for (const auto& track : timeline.tracks()) {
-        Snapshot::Track copy{track.gain, track.muted, track.solo, {}, {}, {}};
+        Snapshot::Track copy{track.gain, track.muted, track.solo, {}, {}, {}, track.id};
         if (const auto it = chains.tracks.find(track.id); it != chains.tracks.end()) {
-            copy.effects = prepare(it->second);
-            copy.scratch.resize(maxBlockFrames * 2);
+            copy.effects = prepare(it->second, chains.trackStructures[track.id]);
         }
+        copy.scratch.resize(maxBlockFrames * 2);
         result->anySolo |= track.solo;
         for (const auto& clip : track.clips) {
             std::shared_ptr<const AudioBuffer> source;
@@ -62,9 +65,35 @@ std::unique_ptr<Snapshot> buildSnapshot(const timeline::Timeline& timeline,
             if (clip.start < 0 || clip.length <= 0 || clip.sourceOffset < 0 ||
                 clip.start > std::numeric_limits<std::int64_t>::max() - clip.length)
                 continue;
-            copy.clips.push_back({clip.start, clip.length, clip.sourceOffset,
+            copy.clips.push_back({clip.start,
+                                  clip.length,
+                                  clip.sourceOffset,
                                   std::max<std::int64_t>(0, clip.fadeIn),
-                                  std::max<std::int64_t>(0, clip.fadeOut), clip.gain, source});
+                                  std::max<std::int64_t>(0, clip.fadeOut),
+                                  clip.gain,
+                                  source,
+                                  {}});
+            auto& copyClip = copy.clips.back();
+            const auto playable = std::min(clip.length, source->frames() - clip.sourceOffset);
+            const auto minimum = std::max<std::int64_t>(1, timeline.sampleRate / 1000);
+            // Include the unity endpoint so the entire boundary region uses the cached SIMD path.
+            const auto count = std::min(minimum + 1, playable);
+            if (count > 0 && clip.fadeIn <= minimum && clip.fadeOut <= minimum) {
+                copyClip.edges = {source.get(), clip.sourceOffset, playable, {}};
+                copyClip.edges.samples.resize(count * 4);
+                for (std::int64_t edge = 0; edge < 2; ++edge)
+                    for (std::int64_t i = 0; i < count; ++i) {
+                        const auto local = edge ? playable - count + i : i;
+                        const double ramp = std::min(1., double(local) / minimum) *
+                                            std::min(1., double(playable - 1 - local) / minimum);
+                        for (unsigned channel = 0; channel < 2; ++channel)
+                            copyClip.edges.samples[(edge * count + i) * 2 + channel] =
+                                static_cast<float>(
+                                    ramp *
+                                    source->samples[(clip.sourceOffset + local) * source->channels +
+                                                    (source->channels == 1 ? 0 : channel)]);
+                    }
+            }
         }
         std::sort(copy.clips.begin(), copy.clips.end(),
                   [](const auto& a, const auto& b) { return a.start < b.start; });

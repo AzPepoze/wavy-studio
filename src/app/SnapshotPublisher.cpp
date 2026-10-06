@@ -48,8 +48,9 @@ void SnapshotPublisher::update() {
             // Null entries prevent buildSnapshot from decoding on the control thread.
             cache.emplace(clip.source, source ? source->audio : nullptr);
         }
-    auto snapshot = wavy::buildSnapshot(model_.timeline(), cache,
-                                        effects_ ? effects_->chains() : wavy::EffectChains{});
+    const wavy::EffectChains empty;
+    const auto& chains = effects_ ? effects_->chains() : empty;
+    auto snapshot = wavy::buildSnapshot(model_.timeline(), cache, chains);
     if (effects_)
         effects_->observeSnapshot(*snapshot);
     mixer_.publish(std::move(snapshot));

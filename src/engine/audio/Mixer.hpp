@@ -23,6 +23,9 @@ class Mixer {
     // only the control thread deletes snapshots. Destruction requires the consumer stopped.
     std::atomic<Snapshot*> pending_{nullptr}, retired_{nullptr};
     Snapshot* current_ = nullptr;
+    Snapshot* fading_ = nullptr;
+    std::size_t swapFrame_ = 0, swapFrames_ = 1, gainFrame_ = 0;
+    std::int64_t position_ = 0, seek_ = -1;
     Transport transport_;
 };
 static_assert(std::atomic<Snapshot*>::is_always_lock_free);

@@ -156,7 +156,9 @@ void EffectsController::addEffect(int track, const QString& type) {
     if (track && !chain(track))
         chains_.tracks.emplace(wavy::timeline::TrackId{static_cast<unsigned>(track)},
                                std::vector<wavy::effects::EffectSlot>{});
-    chain(track)->push_back(factory_.slot(type.toStdString()));
+    auto added = factory_.slot(type.toStdString());
+    added.prepared(timeline_.timeline().sampleRate, 512);
+    chain(track)->push_back(std::move(added));
     changed(track);
 }
 void EffectsController::removeEffect(int track, int index) {

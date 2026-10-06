@@ -30,6 +30,29 @@ struct EffectSlot {
     std::string typeId;
     bool bypassed = false;
     std::shared_ptr<ParameterSet> params;
+    EffectSlot() = default;
+    EffectSlot(std::string type, bool bypass, std::shared_ptr<ParameterSet> parameters)
+        : typeId(std::move(type)), bypassed(bypass), params(std::move(parameters)) {}
+    EffectSlot(const EffectSlot& other) : EffectSlot(other.typeId, other.bypassed, other.params) {}
+    EffectSlot& operator=(const EffectSlot& other) {
+        if (this != &other) {
+            EffectSlot copy(other);
+            *this = std::move(copy);
+        }
+        return *this;
+    }
+    EffectSlot(EffectSlot&&) noexcept = default;
+    EffectSlot& operator=(EffectSlot&&) noexcept = default;
+    void invalidate() const { instance_.reset(); }
+    std::shared_ptr<Effect> prepared(double sampleRate, std::size_t maxBlockFrames,
+                                     const void* chain = nullptr) const;
+
+  private:
+    // Control-thread cache. A format change replaces the instance rather than preparing a live one.
+    mutable std::shared_ptr<Effect> instance_;
+    mutable const void* chain_ = nullptr;
+    mutable double sampleRate_ = 0;
+    mutable std::size_t maxBlockFrames_ = 0;
 };
 using ParameterValues = std::map<std::string, float>;
 ParameterValues serializeParameters(const EffectSlot& slot);

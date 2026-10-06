@@ -25,6 +25,24 @@ std::shared_ptr<ParameterSet> sharedParameters(std::shared_ptr<ParameterSet> par
     }
     return params;
 }
+std::shared_ptr<Effect> EffectSlot::prepared(double sampleRate, std::size_t maxBlockFrames,
+                                             const void* chain) const {
+    if (!params)
+        throw std::invalid_argument("Effect slot requires shared parameters");
+    if (!instance_ || sampleRate_ != sampleRate || maxBlockFrames_ != maxBlockFrames ||
+        (chain && chain_ && chain != chain_)) {
+        auto next = EffectFactory{}.create(typeId, params);
+        if (!next)
+            throw std::invalid_argument("Unknown effect type");
+        next->prepare(sampleRate, maxBlockFrames);
+        instance_ = std::move(next);
+        sampleRate_ = sampleRate;
+        maxBlockFrames_ = maxBlockFrames;
+    }
+    if (chain)
+        chain_ = chain;
+    return instance_;
+}
 ParameterValues serializeParameters(const EffectSlot& slot) {
     ParameterValues result;
     if (slot.params)

@@ -707,3 +707,164 @@ TEST_CASE("Compressor optimization matches the original curve and parameter swee
         }
     }
 }
+
+TEST_CASE("Republished track and master chains preserve tails and biquad state") {
+    for (const std::string type : {"delay", "reverb", "parametric_eq"})
+        for (bool master : {false, true}) {
+            Fixture fixture;
+            auto audio =
+                std::make_shared<AudioBuffer>(AudioBuffer{48000, 2, std::vector<float>(1024)});
+            for (std::size_t i = 144; i < 450; ++i)
+                audio->samples[i * 2] = audio->samples[i * 2 + 1] = .5f * std::sin(float(i) * .13f);
+            fixture.cache["sine"] = audio;
+            EffectChains editedChains, referenceChains;
+            auto slot = EffectFactory{}.slot(type);
+            if (type == "delay") {
+                slot.params->set("time", 10);
+                slot.params->set("feedback", .8f);
+                slot.params->set("mix", 1);
+                slot.params->set("lowcut", 20);
+                slot.params->set("highcut", 20000);
+            } else if (type == "reverb") {
+                slot.params->set("wet", 1);
+                slot.params->set("dry", 0);
+                slot.params->set("predelay", 0);
+            } else {
+                slot.params->set("band2.frequency", 100);
+                slot.params->set("band2.gain", 12);
+            }
+            if (master)
+                editedChains.master.push_back(slot);
+            else
+                editedChains.tracks[fixture.id].push_back(slot);
+            referenceChains = editedChains;
+            Mixer edited, reference;
+            auto initial = buildSnapshot(fixture.timeline, fixture.cache, editedChains);
+            auto instance =
+                master ? initial->masterEffects[0].effect : initial->tracks[0].effects[0].effect;
+            edited.publish(std::move(initial));
+            reference.publish(buildSnapshot(fixture.timeline, fixture.cache, referenceChains));
+            edited.transport().play();
+            reference.transport().play();
+            std::array<float, 1024> a, b;
+            double energy = 0, difference = 0;
+            for (int block = 0; block < 20; ++block) {
+                if (block == 3 || block == 7) {
+                    auto next = buildSnapshot(fixture.timeline, fixture.cache, editedChains);
+                    auto reused =
+                        master ? next->masterEffects[0].effect : next->tracks[0].effects[0].effect;
+                    CHECK(reused.get() == instance.get());
+                    edited.publish(std::move(next));
+                }
+                edited.render(a.data(), 512);
+                reference.render(b.data(), 512);
+                if (block >= 3)
+                    for (std::size_t i = 0; i < a.size(); ++i) {
+                        difference = std::max(difference, double(std::abs(a[i] - b[i])));
+                        energy += double(a[i]) * a[i];
+                    }
+            }
+            INFO(type, " master=", master);
+            log::info("continuity", "{} master={} tail energy {} / max difference {}", type, master,
+                      energy, difference);
+            CHECK(energy > 1e-12);
+            CHECK(difference < 1e-6);
+        }
+}
+
+TEST_CASE(
+    "Slot ownership survives edits and replaces live instances for structure or format changes") {
+    Fixture fixture;
+    EffectFactory factory;
+    EffectChains chains;
+    chains.tracks[fixture.id].push_back(factory.slot("parametric_eq"));
+    chains.tracks[fixture.id].push_back(factory.slot("delay"));
+    auto first = buildSnapshot(fixture.timeline, fixture.cache, chains);
+    auto unchanged = buildSnapshot(fixture.timeline, fixture.cache, chains);
+    CHECK(first->tracks[0].effects[0].effect == unchanged->tracks[0].effects[0].effect);
+    CHECK(first->tracks[0].effects[1].effect == unchanged->tracks[0].effects[1].effect);
+    chains.tracks[fixture.id][0].params->set("band2.gain", 6);
+    chains.tracks[fixture.id][0].bypassed = true;
+    auto bypassed = buildSnapshot(fixture.timeline, fixture.cache, chains);
+    CHECK(first->tracks[0].effects[0].effect == bypassed->tracks[0].effects[0].effect);
+    std::swap(chains.tracks[fixture.id][0], chains.tracks[fixture.id][1]);
+    auto moved = buildSnapshot(fixture.timeline, fixture.cache, chains);
+    CHECK(moved->tracks[0].effects[0].effect != first->tracks[0].effects[1].effect);
+    CHECK(moved->tracks[0].effects[1].effect != first->tracks[0].effects[0].effect);
+    auto resized = buildSnapshot(fixture.timeline, fixture.cache, chains, 127);
+    CHECK(resized->tracks[0].effects[0].effect != moved->tracks[0].effects[0].effect);
+    CHECK(resized->tracks[0].scratch.size() == 254);
+    fixture.timeline.sampleRate = 96000;
+    auto changedRate = buildSnapshot(fixture.timeline, {{"sine", nullptr}}, chains, 127);
+    CHECK(changedRate->tracks[0].effects[0].effect != resized->tracks[0].effects[0].effect);
+}
+
+TEST_CASE("Stateful chains never allocate or free during seeks swaps and structural edits") {
+    Fixture fixture;
+    EffectChains chains;
+    EffectFactory factory;
+    auto& track = chains.tracks[fixture.id];
+    for (const auto& type : {"parametric_eq", "delay", "reverb"})
+        track.push_back(factory.slot(type));
+    chains.master.push_back(factory.slot("compressor"));
+    Mixer mixer;
+    mixer.publish(buildSnapshot(fixture.timeline, fixture.cache, chains));
+    mixer.transport().play();
+    std::array<float, 1024> block;
+    allocations = frees = 0;
+    for (int i = 0; i < 80; ++i) {
+        if (i % 4 == 0)
+            mixer.publish(buildSnapshot(fixture.timeline, fixture.cache, chains));
+        if (i % 7 == 0)
+            std::swap(track[0], track[1]);
+        if (i % 9 == 0)
+            mixer.transport().seek(i % 2 ? 250 : 0);
+        if (i % 11 == 0)
+            mixer.transport().pause();
+        else if (i % 11 == 1)
+            mixer.transport().play();
+        countMemory = true;
+        mixer.render(block.data(), 512);
+        countMemory = false;
+        for (auto value : block)
+            CHECK(std::isfinite(value));
+    }
+    CHECK(allocations == 0);
+    CHECK(frees == 0);
+}
+
+TEST_CASE("Moving a prepared slot between track and master creates disjoint render state") {
+    Fixture fixture;
+    EffectChains chains;
+    chains.tracks[fixture.id].push_back(EffectFactory{}.slot("delay"));
+    auto before = buildSnapshot(fixture.timeline, fixture.cache, chains);
+    chains.master.push_back(std::move(chains.tracks[fixture.id][0]));
+    chains.tracks[fixture.id].clear();
+    auto after = buildSnapshot(fixture.timeline, fixture.cache, chains);
+    CHECK(after->masterEffects[0].effect != before->tracks[0].effects[0].effect);
+}
+
+TEST_CASE("Muted tails stay silent when a republish changes the chain structure") {
+    Fixture fixture;
+    EffectFactory factory;
+    EffectChains chains;
+    chains.tracks[fixture.id].push_back(factory.slot("delay"));
+    chains.tracks[fixture.id][0].params->set("time", 10);
+    chains.tracks[fixture.id][0].params->set("mix", 1);
+    Mixer mixer;
+    mixer.publish(buildSnapshot(fixture.timeline, fixture.cache, chains));
+    mixer.transport().play();
+    std::array<float, 1024> block;
+    mixer.render(block.data(), 512);
+    auto muted = buildSnapshot(fixture.timeline, fixture.cache, chains);
+    muted->tracks[0].muted = true;
+    mixer.publish(std::move(muted));
+    mixer.render(block.data(), 512);
+    chains.tracks[fixture.id].push_back(factory.slot("gain_pan"));
+    auto changed = buildSnapshot(fixture.timeline, fixture.cache, chains);
+    changed->tracks[0].muted = true;
+    mixer.publish(std::move(changed));
+    mixer.render(block.data(), 512);
+    for (auto sample : block)
+        CHECK(sample == 0);
+}
