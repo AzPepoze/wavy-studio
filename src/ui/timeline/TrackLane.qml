@@ -9,11 +9,11 @@ Rectangle {
     required property real scrollX
     required property real pixelsPerFrame
     required property real gridFrames
-    required property real tickSeconds
-    required property real pixelsPerSecond
     required property int selectedClipId
     required property bool alternate
     required property bool snapEnabled
+    // The lane grid is the snap grid, thinned to keep at least laneGridMinimumSpacing between lines.
+    readonly property real gridStep: Math.max(1, root.gridFrames) * Math.max(1, Math.ceil(Theme.laneGridMinimumSpacing / Math.max(1, root.gridFrames * root.pixelsPerFrame)))
     signal selected(var clip)
     signal cleared()
     signal trimmed(var clip, real leftDelta, real rightDelta)
@@ -26,10 +26,10 @@ Rectangle {
     color: alternate ? Theme.backgroundAlternate : Theme.background
     MouseArea { anchors.fill: parent; onClicked: root.cleared() }
     Repeater {
-        model: Math.ceil(root.width / (root.tickSeconds * root.pixelsPerSecond)) + 2
+        model: Math.ceil(root.width / Math.max(1, root.gridStep * root.pixelsPerFrame)) + 2
         Rectangle {
             required property int index
-            x: (Math.floor(root.scrollX / (root.tickSeconds * root.pixelsPerSecond)) + index) * root.tickSeconds * root.pixelsPerSecond - root.scrollX
+            x: (Math.floor(root.scrollX / (root.gridStep * root.pixelsPerFrame)) + index) * root.gridStep * root.pixelsPerFrame - root.scrollX
             width: Theme.lineWidth
             height: root.height
             color: Theme.surface

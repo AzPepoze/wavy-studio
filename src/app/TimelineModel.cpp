@@ -192,6 +192,26 @@ void TimelineModel::setTrackGain(int trackId, double db) {
         }
 }
 
+void TimelineModel::setTempo(double bpm) {
+    // A tempo change keeps every clip at its frame position; beat-locking clips is a later feature.
+    auto command = std::make_unique<SetTempo>(bpm);
+    if (!command->validate(timeline_))
+        return;
+    if (execute(std::move(command)))
+        emit tempoChanged();
+}
+
+void TimelineModel::setTimeSignature(int numerator, int denominator) {
+    if (numerator < 0 || denominator < 0)
+        return;
+    auto command = std::make_unique<SetTimeSignature>(static_cast<unsigned>(numerator),
+                                                      static_cast<unsigned>(denominator));
+    if (!command->validate(timeline_))
+        return;
+    if (execute(std::move(command)))
+        emit timeSignatureChanged();
+}
+
 int TimelineModel::trackIdAt(int row) const {
     return row >= 0 && row < rowCount()
                ? static_cast<int>(timeline_.tracks()[static_cast<size_t>(row)].id.value)

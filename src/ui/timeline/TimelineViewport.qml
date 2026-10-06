@@ -1,4 +1,5 @@
-// Virtualized track viewport and scroll controls. Requires the timeline timelineState; forwards selection/edit/navigation.
+// Virtualized track viewport and scroll controls. Requires the timeline timelineState and edit
+// coordinator; forwards selection/edit/navigation.
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
@@ -7,9 +8,12 @@ import "../theme"
 Item {
     id: root
     required property var timelineState
+    required property var editing
     property real snapFrame: 0
     property bool dragging: false
+    property bool altPressed: false
     property var dragClip: null
+    property var dragEdges: []
     property int dragRow: -1
     property real dragFrame: 0
     property bool dragOriginSet: false
@@ -19,21 +23,24 @@ Item {
     readonly property bool draggingClip: dragClip !== null && dragRow >= 0
     signal selected(var clip, int trackId, int rowIndex)
     signal cleared()
-    signal moved(var clip, int rowIndex, real startFrame)
+    signal moved(var clip, int rowIndex, real startFrame, bool alt)
     signal trimmed(var clip, int trackId, real leftDelta, real rightDelta)
     clip: true
+    Keys.onPressed: event => { if (event.key === Qt.Key_Alt) { root.altPressed = true; event.accepted = true; } }
+    Keys.onReleased: event => { if (event.key === Qt.Key_Alt) { root.altPressed = false; event.accepted = true; } }
     function rowAt(sceneY: real): int {
         const content = tracks.contentY + (mapFromItem(null, 0, sceneY).y - tracks.y);
         return Math.max(0, Math.min(trackCount - 1, Math.floor(content / Theme.trackHeight)));
     }
     function snapStart(sceneX: real): real {
         if (!dragClip) return 0;
-        const frames = (sceneX - dragOriginX) / root.timelineState.pixelsPerFrame;
-        const snapped = root.timelineState.snapEnabled ? Math.round(frames / root.timelineState.gridFrames) * root.timelineState.gridFrames : Math.round(frames);
-        return Math.max(0, dragClip.startFrame + snapped);
+        const raw = (sceneX - dragOriginX) / root.timelineState.pixelsPerFrame;
+        return Math.max(0, root.editing.snapFrame(dragClip.startFrame + raw,
+                                                  { alt: root.altPressed, clipEdges: root.dragEdges }));
     }
     function beginClipDrag(clip: var): void {
         dragClip = clip;
+        dragEdges = root.timelineState.settings.snapToClipEdges ? root.editing.clipEdges(clip.clipId) : [];
         dragRow = -1;
         dragFrame = clip.startFrame;
         dragOriginSet = false;
@@ -59,11 +66,12 @@ Item {
         const row = rowAt(sceneY);
         const start = snapStart(sceneX);
         const changed = row !== dragSourceRow || start !== dragClip.startFrame;
+        const alt = root.altPressed;
         cancelClipDrag();
-        if (changed) root.moved(clip, row, start);
+        if (changed) root.moved(clip, row, start, alt);
     }
     function cancelClipDrag(): void {
-        dragClip = null; dragRow = -1; dragOriginSet = false;
+        dragClip = null; dragEdges = []; dragRow = -1; dragOriginSet = false;
         dragSourceRow = -1; dragging = false;
     }
     Text { text: "TRACKS"; x: Theme.space12; y: Theme.space8; color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
@@ -71,7 +79,13 @@ Item {
         x: root.timelineState.headerWidth; width: root.timelineState.laneWidth
         scrollX: root.timelineState.scrollX; pixelsPerSecond: root.timelineState.pixelsPerSecond
         pixelsPerFrame: root.timelineState.pixelsPerFrame; tickSeconds: root.timelineState.tickSeconds
-        onFrameRequested: frame => root.timelineState.timelineModel.playheadFrame = Math.round(Math.max(0, Math.min(root.timelineState.timelineModel.durationFrames, frame)))
+        gridFrames: root.timelineState.gridFrames; framesPerBeat: root.timelineState.framesPerBeat
+        framesPerBar: root.timelineState.framesPerBar; beatsPerBar: root.timelineState.beatsPerBar
+        sampleRate: root.timelineState.timelineModel.sampleRate
+        mode: root.timelineState.settings.rulerMode
+        onFrameRequested: (frame, alt) => root.timelineState.timelineModel.playheadFrame =
+            Math.round(Math.max(0, Math.min(root.timelineState.timelineModel.durationFrames,
+                                            root.editing.snapFrame(frame, { playhead: false, alt: alt }))))
     }
     ListView {
         id: tracks
@@ -82,11 +96,11 @@ Item {
         ScrollBar.vertical: ScrollBar {}
         delegate: TrackRow {
             recordingController: root.timelineState.recordingController
+            editing: root.editing
             required property int index
             width: tracks.width
             rowIndex: index; timelineModel: root.timelineState.timelineModel
-            scrollX: root.timelineState.scrollX; laneWidth: root.timelineState.laneWidth; pixelsPerFrame: root.timelineState.pixelsPerFrame
-            pixelsPerSecond: root.timelineState.pixelsPerSecond; tickSeconds: root.timelineState.tickSeconds; gridFrames: root.timelineState.gridFrames
+            scrollX: root.timelineState.scrollX; laneWidth: root.timelineState.laneWidth; pixelsPerFrame: root.timelineState.pixelsPerFrame; gridFrames: root.timelineState.gridFrames
             trackSelected: root.timelineState.selectedTrackId === trackId
             onTrackSelectedRequested: { root.timelineState.selectedTrackId = trackId; }
             selectedClipId: root.timelineState.selectedClipId; snapEnabled: root.timelineState.snapEnabled; viewportRevision: root.timelineState.viewportRevision

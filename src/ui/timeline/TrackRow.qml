@@ -5,6 +5,7 @@ import "../theme"
 Item {
     id: root
     property var recordingController: null
+    property var editing: null
     required property var timelineModel
     required property int trackId
     required property int rowIndex
@@ -15,9 +16,7 @@ Item {
     required property real scrollX
     required property real laneWidth
     required property real pixelsPerFrame
-    required property real pixelsPerSecond
     required property real gridFrames
-    required property real tickSeconds
     required property int selectedClipId
     required property bool snapEnabled
     required property int viewportRevision
@@ -55,13 +54,17 @@ Item {
     }
     TrackLane {
         clips: root.visibleClips; scrollX: root.scrollX; pixelsPerFrame: root.pixelsPerFrame
-        pixelsPerSecond: root.pixelsPerSecond; gridFrames: root.gridFrames; tickSeconds: root.tickSeconds
+        gridFrames: root.gridFrames
         selectedClipId: root.selectedClipId; alternate: root.rowIndex % 2 !== 0; snapEnabled: root.snapEnabled
         x: Theme.headerWidth; width: root.laneWidth; height: root.height - Theme.lineWidth
         onSelected: clip => root.selected(clip, root.trackId, root.rowIndex)
         onCleared: root.cleared()
         onTrimmed: (clip, leftDelta, rightDelta) => root.trimmed(clip, root.trackId, leftDelta, rightDelta)
-        onRequested: (clip, operation) => root.timelineModel.action(clip.clipId, root.trackId, operation)
+        onRequested: (clip, operation) => {
+            // Split also snaps the playhead, so it goes through the edit coordinator; the rest are direct.
+            if (operation === "split" && root.editing) root.editing.action(operation);
+            else root.timelineModel.action(clip.clipId, root.trackId, operation);
+        }
         onClipDragStarted: clip => root.clipDragStarted(clip)
         onClipDragMoved: (sceneX, sceneY) => root.clipDragMoved(sceneX, sceneY)
         onClipDropped: (clip, sceneX, sceneY) => root.clipDropped(clip, sceneX, sceneY)

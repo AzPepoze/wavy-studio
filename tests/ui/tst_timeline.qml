@@ -82,13 +82,16 @@ Item {
         function test_split() {
             select(0);
             let duration = clipData(0, 0).durationFrames;
+            // Splitting snaps the playhead to the grid, so a half-clip playhead lands on the nearest step.
+            let splitFrame = view.gridFrames * 5;
             model.playheadFrame = duration / 2;
             let id = model.nextId;
             keyClick(Qt.Key_S);
+            compare(model.playheadFrame, splitFrame);
             compare(model.clips[0].length, 4);
-            compare(clipData(0, 0).durationFrames, duration / 2);
-            compare(clipData(0, id).startFrame, model.playheadFrame);
-            compare(clipData(0, id).durationFrames, duration / 2);
+            compare(clipData(0, 0).durationFrames, splitFrame);
+            compare(clipData(0, id).startFrame, splitFrame);
+            compare(clipData(0, id).durationFrames, duration - splitFrame);
         }
         function test_cross_track_drag() {
             let duration = clipData(0, 0).durationFrames;

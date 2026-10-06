@@ -11,10 +11,20 @@ QtObject {
     property bool ready: false
     property int sampleRate: 48000
     property bool stress: false
+    property real tempoBpm: 120
+    property int timeSignatureNumerator: 4
+    property int timeSignatureDenominator: 4
+    readonly property real framesPerBeat: sampleRate * 60 / tempoBpm
     property ListModel tracks: ListModel {
     }
 
     signal clipsChangedForTrack(int trackId)
+
+    function setTempo(bpm: real): void { tempoBpm = bpm; }
+    function setTimeSignature(numerator: int, denominator: int): void {
+        timeSignatureNumerator = numerator;
+        timeSignatureDenominator = denominator;
+    }
 
     function action(id: int, trackId: int, operation: string): void {
         let list = clips[trackId];

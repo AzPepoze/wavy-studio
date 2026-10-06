@@ -7,6 +7,7 @@
 #include "RecordController.hpp"
 #include "SnapshotPublisher.hpp"
 #include "TimelineModel.hpp"
+#include "UserSettings.hpp"
 #include "core/Log.hpp"
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -46,6 +47,7 @@ int main(int argc, char* argv[]) {
         if (std::string_view(argv[i]) == "--smoke-test")
             qputenv("QT_QPA_PLATFORMTHEME", "");
     QGuiApplication app(argc, argv);
+    app.setOrganizationName("Wavy Studio");
     app.setApplicationName("Wavy Studio");
     QQuickStyle::setStyle("Basic");
     const bool smoke = app.arguments().contains("--smoke-test");
@@ -57,11 +59,13 @@ int main(int argc, char* argv[]) {
     RecordController recorder(timeline, audio);
     SnapshotPublisher publisher(timeline, audio.engine().mixer());
     publisher.setEffectsController(effects);
+    UserSettings userSettings;
     QQmlApplicationEngine qml;
     qml.rootContext()->setContextProperty("audioEngine", &audio);
     qml.rootContext()->setContextProperty("recorder", &recorder);
     qml.rootContext()->setContextProperty("timelineModel", &timeline);
     qml.rootContext()->setContextProperty("effects", &effects);
+    qml.rootContext()->setContextProperty("userSettings", &userSettings);
     qml.load(QUrl(QStringLiteral("qrc:/ui/main.qml")));
     if (qml.rootObjects().isEmpty())
         return 1;

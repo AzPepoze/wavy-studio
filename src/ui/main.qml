@@ -48,6 +48,7 @@ ApplicationWindow {
             RecordButton { controller: window.recordingController }
             InputMeter { level: window.recordingController.inputPeak }
             Label { visible: window.recordingController.recording; text: window.recordingController.elapsedSeconds.toFixed(1) + " s" }
+            TransportBar { timelineModel: window.timeline; Layout.alignment: Qt.AlignVCenter }
             Button { text: "⚙"; Accessible.name: "Audio settings"; onClicked: settings.open() }
             Item { Layout.fillWidth: true }
             Label { text: "Transport"; color: Theme.textSecondary }
@@ -63,6 +64,7 @@ ApplicationWindow {
         anchors.margins: Theme.space16
         timelineModel: window.timeline
         recordingController: window.recordingController
+        settings: userSettings
         onPlayPauseRequested: audioEngine.togglePlay()
     }
     AudioSettings { id: settings; controller: window.recordingController; anchors.centerIn: Overlay.overlay }

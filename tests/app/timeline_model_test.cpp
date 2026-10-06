@@ -2,14 +2,17 @@
 #include "EngineController.hpp"
 #include "SnapshotPublisher.hpp"
 #include "TimelineModel.hpp"
+#include "UserSettings.hpp"
 #include "audio/Mixer.hpp"
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QSet>
+#include <QTemporaryDir>
 #include <QThread>
 #include <algorithm>
 #include <cmath>
 #include <doctest/doctest.h>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -197,4 +200,135 @@ TEST_CASE("invalid ids are ignored and track notifications are emitted") {
     CHECK(model.rowCount() == 5);
     model.undo();
     CHECK(model.rowCount() == 4);
+}
+
+TEST_CASE("tempo and time signature setters notify and keep clips in place") {
+    TimelineModel model;
+    const auto clip =
+        model.visibleClips(model.trackIdAt(0), 0, model.durationFrames()).first().toMap();
+    int tempoChanges = 0;
+    int signatureChanges = 0;
+    QObject::connect(&model, &TimelineModel::tempoChanged, [&tempoChanges] { ++tempoChanges; });
+    QObject::connect(&model, &TimelineModel::timeSignatureChanged,
+                     [&signatureChanges] { ++signatureChanges; });
+    CHECK(model.tempoBpm() == doctest::Approx(120.0));
+    CHECK(model.framesPerBeat() == doctest::Approx(24000.0));
+    model.setTempo(90);
+    CHECK(model.tempoBpm() == doctest::Approx(90.0));
+    CHECK(model.framesPerBeat() == doctest::Approx(32000.0));
+    CHECK(tempoChanges == 1);
+    // The tempo change must not move existing clips.
+    const auto moved =
+        model.visibleClips(model.trackIdAt(0), 0, model.durationFrames()).first().toMap();
+    CHECK(moved.value("startFrame").toLongLong() == clip.value("startFrame").toLongLong());
+    CHECK(moved.value("durationFrames").toLongLong() == clip.value("durationFrames").toLongLong());
+
+    CHECK(model.timeSignatureNumerator() == 4);
+    CHECK(model.timeSignatureDenominator() == 4);
+    model.setTimeSignature(3, 4);
+    CHECK(model.timeSignatureNumerator() == 3);
+    CHECK(model.timeSignatureDenominator() == 4);
+    CHECK(signatureChanges == 1);
+}
+
+TEST_CASE("tempo edits merge into one undo step and invalid values are rejected") {
+    TimelineModel model;
+    model.setTempo(100);
+    model.setTempo(150);
+    CHECK(model.tempoBpm() == doctest::Approx(150.0));
+    CHECK(model.canUndo());
+    model.undo();
+    CHECK(model.tempoBpm() == doctest::Approx(120.0));
+    CHECK_FALSE(model.canUndo());
+    model.redo();
+    CHECK(model.tempoBpm() == doctest::Approx(150.0));
+
+    int tempoChanges = 0;
+    QObject::connect(&model, &TimelineModel::tempoChanged, [&tempoChanges] { ++tempoChanges; });
+    model.setTempo(19.9);
+    model.setTempo(1000.0);
+    model.setTempo(std::numeric_limits<double>::quiet_NaN());
+    CHECK(model.tempoBpm() == doctest::Approx(150.0));
+    CHECK(tempoChanges == 0);
+
+    int signatureChanges = 0;
+    QObject::connect(&model, &TimelineModel::timeSignatureChanged,
+                     [&signatureChanges] { ++signatureChanges; });
+    model.setTimeSignature(0, 4);
+    model.setTimeSignature(65, 4);
+    model.setTimeSignature(4, 3);
+    CHECK(model.timeSignatureNumerator() == 4);
+    CHECK(model.timeSignatureDenominator() == 4);
+    CHECK(signatureChanges == 0);
+
+    model.setTimeSignature(6, 8);
+    CHECK(model.timeSignatureNumerator() == 6);
+    CHECK(model.timeSignatureDenominator() == 8);
+    CHECK(signatureChanges == 1);
+    model.undo();
+    CHECK(model.timeSignatureNumerator() == 4);
+    CHECK(model.timeSignatureDenominator() == 4);
+}
+
+TEST_CASE("user settings round trip through an explicit ini file") {
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString path = dir.filePath("wavy.ini");
+    {
+        UserSettings settings(path);
+        CHECK(settings.snapEnabled());
+        CHECK(settings.snapDivision() == "auto");
+        CHECK(settings.snapToClipEdges());
+        CHECK(settings.snapToPlayhead());
+        CHECK(settings.snapTolerancePixels() == 8);
+        CHECK(settings.rulerMode() == "barsBeats");
+        settings.setSnapEnabled(false);
+        settings.setSnapDivision("1/16");
+        settings.setSnapToClipEdges(false);
+        settings.setSnapToPlayhead(false);
+        settings.setSnapTolerancePixels(20);
+        settings.setRulerMode("time");
+    }
+    UserSettings reloaded(path);
+    CHECK_FALSE(reloaded.snapEnabled());
+    CHECK(reloaded.snapDivision() == "1/16");
+    CHECK_FALSE(reloaded.snapToClipEdges());
+    CHECK_FALSE(reloaded.snapToPlayhead());
+    CHECK(reloaded.snapTolerancePixels() == 20);
+    CHECK(reloaded.rulerMode() == "time");
+}
+
+TEST_CASE("user settings honour the WAVY_SETTINGS_FILE override") {
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QByteArray path = dir.filePath("env.ini").toUtf8();
+    qputenv("WAVY_SETTINGS_FILE", path);
+    {
+        UserSettings settings;
+        settings.setSnapDivision("1/8");
+        settings.setRulerMode("time");
+    }
+    {
+        UserSettings settings;
+        CHECK(settings.snapDivision() == "1/8");
+        CHECK(settings.rulerMode() == "time");
+    }
+    qunsetenv("WAVY_SETTINGS_FILE");
+}
+
+TEST_CASE("user settings reject unknown values and clamp tolerance") {
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    UserSettings settings(dir.filePath("wavy.ini"));
+    settings.setSnapDivision("not-a-division");
+    CHECK(settings.snapDivision() == "auto");
+    settings.setRulerMode("not-a-mode");
+    CHECK(settings.rulerMode() == "barsBeats");
+    settings.setSnapTolerancePixels(1000);
+    CHECK(settings.snapTolerancePixels() == 64);
+    settings.setSnapTolerancePixels(0);
+    CHECK(settings.snapTolerancePixels() == 1);
+    CHECK(UserSettings::validDivision("1/8T"));
+    CHECK_FALSE(UserSettings::validDivision("1/64"));
+    CHECK(UserSettings::validRulerMode("barsBeats"));
 }

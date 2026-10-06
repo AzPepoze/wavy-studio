@@ -6,17 +6,30 @@
 // trackId, "split"/"duplicate"/"delete"), setTrackState(row, role, bool),
 // setTrackGain(trackId, dB), and trackIdAt(row) returning a track ID are invokables.
 // clipsChangedForTrack(trackId) invalidates a lane; standard model notifications
-// update track roles. Property notify signals update sample rate, duration and playhead.
+// update track roles. Property notify signals update sample rate, duration, playhead,
+// tempoBpm, timeSignatureNumerator/Denominator and framesPerBeat.
 // Composes navigation, virtualized tracks and editing; playPauseRequested is wired by the app.
 import QtQuick
 import "../theme"
+import "SnapMath.js" as SnapMath
 
 Rectangle {
     id: root
+    property var settings: TimelineSettings {}
+    property bool snapEnabled: true
     readonly property real contentWidth: timelineModel.durationFrames * pixelsPerFrame
-    readonly property real gridFrames: tickSeconds * timelineModel.sampleRate / 4
     readonly property int headerWidth: Theme.headerWidth
     readonly property real laneWidth: Math.max(Theme.lineWidth, width - headerWidth)
+    readonly property real beatsPerMinute: timelineModel.tempoBpm !== undefined ? timelineModel.tempoBpm : 120
+    readonly property real framesPerBeat: timelineModel.framesPerBeat !== undefined
+                                          ? timelineModel.framesPerBeat
+                                          : timelineModel.sampleRate * 60 / beatsPerMinute
+    readonly property int signatureNumerator: timelineModel.timeSignatureNumerator !== undefined ? timelineModel.timeSignatureNumerator : 4
+    readonly property int signatureDenominator: timelineModel.timeSignatureDenominator !== undefined ? timelineModel.timeSignatureDenominator : 4
+    readonly property real beatsPerBar: signatureNumerator * 4 / signatureDenominator
+    readonly property real framesPerBar: framesPerBeat * beatsPerBar
+    readonly property real gridFrames: Math.max(1, Math.round(SnapMath.stepFrames(settings.snapDivision, beatsPerBar, framesPerBeat, pixelsPerFrame, Theme.snapMinimumSpacing)))
+    readonly property string snapStepLabel: SnapMath.stepLabel(settings.snapDivision, gridFrames / framesPerBeat, beatsPerBar)
     readonly property real pixelsPerFrame: pixelsPerSecond / timelineModel.sampleRate
     property real pixelsPerSecond: Theme.defaultZoom
     property real scrollX: 0
@@ -30,10 +43,23 @@ Rectangle {
     property var timelineModel: MockTimelineModel {}
     readonly property int trackHeight: Theme.trackHeight
     property int viewportRevision: 0
-    property bool snapEnabled: true
     property real zoomAnchorSeconds: 0
     property real zoomAnchorX: 0
     signal playPauseRequested()
+    function applySettings(): void {
+        root.snapEnabled = root.settings.snapEnabled;
+    }
+    // Public entry to the single snap path for callers outside the editor (and tests).
+    function snapFrame(frame: real, options: var): real {
+        return editing.snapFrame(frame, options);
+    }
+    onSettingsChanged: applySettings()
+    Component.onCompleted: applySettings()
+    onSnapEnabledChanged: root.settings.snapEnabled = root.snapEnabled
+    Connections {
+        target: root.settings
+        function onChanged() { root.applySettings(); }
+    }
     function clampScroll(value: real): real { return Math.max(0, Math.min(value, Math.max(0, contentWidth - laneWidth))); }
     function zoom(factor: real, cursorX: real): void {
         zoomAnimation.stop();
@@ -82,7 +108,14 @@ Rectangle {
         width: root.width
         effectsVisible: root.effectsVisible
         onEffectsRequested: root.effectsRequested()
-        seconds: root.timelineModel.playheadFrame / root.timelineModel.sampleRate
+        playheadFrame: root.timelineModel.playheadFrame
+        sampleRate: root.timelineModel.sampleRate
+        settings: root.settings
+        beatsPerMinute: root.beatsPerMinute
+        framesPerBeat: root.framesPerBeat
+        beatsPerBar: root.beatsPerBar
+        timeSignatureText: root.signatureNumerator + "/" + root.signatureDenominator
+        snapStepLabel: root.snapStepLabel
         snapEnabled: root.snapEnabled
         onZoomRequested: factor => root.zoomSmooth(factor, root.laneWidth / 2)
         onFitRequested: root.zoomToFit()
@@ -93,10 +126,11 @@ Rectangle {
         objectName: "timeline-viewport"
         y: Theme.toolbarHeight; width: root.width; height: root.height - y - root.bottomInset
         timelineState: root
+        editing: editing
         onSelected: (clip, trackId, rowIndex) => { root.selectedTrackId = trackId; editing.select(clip, trackId, rowIndex); }
         onCleared: editing.clear()
-        onMoved: (clip, rowIndex, startFrame) => editing.move(clip, rowIndex, startFrame)
-        onTrimmed: (clip, trackId, leftDelta, rightDelta) => editing.trim(clip, trackId, leftDelta, rightDelta)
+        onMoved: (clip, rowIndex, startFrame, alt) => editing.move(clip, rowIndex, startFrame, alt)
+        onTrimmed: (clip, trackId, leftDelta, rightDelta) => editing.trim(clip, trackId, leftDelta, rightDelta, false)
     }
     Rectangle {
         anchors.fill: parent

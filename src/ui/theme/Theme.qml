@@ -68,9 +68,28 @@ QtObject {
     readonly property int trackCacheRows: 0
     readonly property int cullMargin: 150
     readonly property int tickSpacing: 70
+    // Ruler labels stay at least this far apart; the auto snap grid stays at least this wide.
+    readonly property int rulerLabelSpacing: 64
+    readonly property int laneGridMinimumSpacing: 70
+    readonly property int rulerBarTickHeight: 18
+    readonly property int rulerBeatTickHeight: 12
+    readonly property int snapMinimumSpacing: 12
+    readonly property int snapPopupWidth: 260
+    readonly property int snapPopupPadding: 12
+    readonly property int snapDivisionButtonWidth: 56
+    readonly property int snapToleranceSliderWidth: 140
+    readonly property int timeSignaturePopupWidth: 220
+    readonly property int tempoFieldWidth: 72
+    readonly property real tempoWheelStep: 1.0
+    readonly property real tempoFineStep: 0.1
+    readonly property real tempoMinimum: 20
+    readonly property real tempoMaximum: 999
+    readonly property int tapTempoWindow: 2000
+    readonly property int tapTempoMaximumIntervals: 7
     readonly property real defaultZoom: 90
     readonly property real minimumZoom: 0.1
-    readonly property real maximumZoom: 720
+    // Reaches a 1/64-beat auto grid at 120 BPM while keeping ruler labels legible.
+    readonly property real maximumZoom: 1920
     readonly property real zoomFactor: 1.2
     readonly property real zoomPerWheelUnit: 1.0015
     readonly property int zoomDuration: 110

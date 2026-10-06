@@ -110,7 +110,8 @@ target("wavy-studio")
               "src/app/RecordController.hpp", "src/app/RecordController.cpp",
               "src/app/EffectsController.hpp", "src/app/EffectsController.cpp",
               "src/app/SnapshotPublisher.hpp", "src/app/SnapshotPublisher.cpp",
-              "src/app/TimelineModel.cpp", "src/app/TimelineModel.hpp", "src/ui/ui.qrc")
+              "src/app/TimelineModel.cpp", "src/app/TimelineModel.hpp",
+              "src/app/UserSettings.cpp", "src/app/UserSettings.hpp", "src/ui/ui.qrc")
 
 target("engine_tests")
     set_kind("binary")
@@ -163,6 +164,7 @@ target("timeline_model_tests")
               "src/app/EffectsController.hpp", "src/app/EffectsController.cpp",
               "src/app/SnapshotPublisher.hpp", "src/app/SnapshotPublisher.cpp",
               "src/app/TimelineModel.cpp", "src/app/TimelineModel.hpp",
+              "src/app/UserSettings.cpp", "src/app/UserSettings.hpp",
               "tests/app/timeline_model_test.cpp", "tests/app/playback_test.cpp",
               "tests/app/record_controller_test.cpp", "tests/app/effects_controller_test.cpp")
     add_includedirs("src/app")

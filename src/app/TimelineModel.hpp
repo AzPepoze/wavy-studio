@@ -16,6 +16,11 @@ class TimelineModel final : public QAbstractListModel {
         qint64 playheadFrame READ playheadFrame WRITE setPlayheadFrame NOTIFY playheadFrameChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
+    Q_PROPERTY(double tempoBpm READ tempoBpm NOTIFY tempoChanged)
+    Q_PROPERTY(int timeSignatureNumerator READ timeSignatureNumerator NOTIFY timeSignatureChanged)
+    Q_PROPERTY(
+        int timeSignatureDenominator READ timeSignatureDenominator NOTIFY timeSignatureChanged)
+    Q_PROPERTY(double framesPerBeat READ framesPerBeat NOTIFY tempoChanged)
   public:
     enum Role { TrackIdRole = Qt::UserRole + 1, NameRole, MutedRole, SoloRole, GainRole };
     explicit TimelineModel(QObject* parent = nullptr);
@@ -32,6 +37,16 @@ class TimelineModel final : public QAbstractListModel {
     void setPlayheadFrame(qint64 frame);
     bool canUndo() const { return history_.canUndo(); }
     bool canRedo() const { return history_.canRedo(); }
+    double tempoBpm() const { return timeline_.tempoBpm; }
+    int timeSignatureNumerator() const {
+        return static_cast<int>(timeline_.timeSignatureNumerator);
+    }
+    int timeSignatureDenominator() const {
+        return static_cast<int>(timeline_.timeSignatureDenominator);
+    }
+    double framesPerBeat() const { return timeline_.framesPerBeat(); }
+    Q_INVOKABLE void setTempo(double bpm);
+    Q_INVOKABLE void setTimeSignature(int numerator, int denominator);
     Q_INVOKABLE QVariantList visibleClips(int trackId, qint64 firstFrame, qint64 lastFrame) const;
     Q_INVOKABLE void editClip(int clipId, int targetTrackId, qint64 startFrame,
                               qint64 durationFrames);
@@ -51,6 +66,8 @@ class TimelineModel final : public QAbstractListModel {
     void playheadFrameChanged();
     void historyChanged();
     void clipsChangedForTrack(int trackId);
+    void tempoChanged();
+    void timeSignatureChanged();
 
   private:
     bool execute(std::unique_ptr<wavy::timeline::Command> command);
