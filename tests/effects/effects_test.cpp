@@ -415,19 +415,21 @@ TEST_CASE("Snapshot bypass is bit exact and live parameters affect track and mas
     processed.transport().play();
     for (int i = 0; i < 20; ++i)
         processed.render(b.data(), 480);
+    // Every clip edge fades over 1 ms (declick), so the level is measured away from the loop ends.
+    constexpr std::size_t from = 64, to = 416;
     double energy = 0;
-    for (std::size_t i = 0; i < 480; ++i)
+    for (std::size_t i = from; i < to; ++i)
         energy += b[i * 2] * b[i * 2];
-    CHECK(std::abs(20 * std::log10(std::sqrt(energy / 480) / (.1 / std::sqrt(2.))) -
+    CHECK(std::abs(20 * std::log10(std::sqrt(energy / (to - from)) / (.1 / std::sqrt(2.))) -
                    (12 - 3.0103)) < .1);
     gain.params->set("gain", 0);
     for (int i = 0; i < 20; ++i)
         processed.render(b.data(), 480);
     energy = 0;
-    for (std::size_t i = 0; i < 480; ++i)
+    for (std::size_t i = from; i < to; ++i)
         energy += b[i * 2] * b[i * 2];
-    CHECK(std::abs(20 * std::log10(std::sqrt(energy / 480) / (.1 / std::sqrt(2.))) - (6 - 3.0103)) <
-          .1);
+    CHECK(std::abs(20 * std::log10(std::sqrt(energy / (to - from)) / (.1 / std::sqrt(2.))) -
+                   (6 - 3.0103)) < .1);
     chains.tracks.clear();
     chains.master = {gain};
     Mixer master;

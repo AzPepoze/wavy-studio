@@ -12,7 +12,19 @@ class Transport {
         seek(0);
     }
     void seek(std::int64_t frame) noexcept { requestedSeek_.store(frame < 0 ? 0 : frame); }
+    // The logical position: a requested seek is reported at once, also while the audio thread is
+    // still ramping the old audio down before it jumps, so callers never see a stale position.
     std::int64_t positionFrames() const noexcept {
+        if (const auto seek = requestedSeek_.load(); seek >= 0)
+            return seek;
+        if (const auto pending = pendingSeek_.load(); pending >= 0)
+            return pending;
+        return position_.load();
+    }
+    // The timeline position of the next frame the audio thread renders. A seek on a silent
+    // transport is applied by that very render, while an audible one is still ramping down at the
+    // old position. The recorder aligns its input with this, not with the logical position.
+    std::int64_t nextRenderedFrame() const noexcept {
         const auto seek = requestedSeek_.load();
         return !audible_.load() && seek >= 0 ? seek : position_.load();
     }
@@ -22,7 +34,9 @@ class Transport {
   private:
     friend class Mixer;
     std::atomic<std::int64_t> position_{0}, loopBegin_{0}, loopEnd_{0};
-    std::atomic<std::int64_t> requestedSeek_{-1};
+    // requestedSeek_ is written by the control thread; the audio thread publishes the target in
+    // pendingSeek_ before taking it, and clears it only after position_ holds the new position.
+    std::atomic<std::int64_t> requestedSeek_{-1}, pendingSeek_{-1};
     std::atomic<bool> playing_{false}, audible_{false}, loopEnabled_{false};
     std::atomic<unsigned> loopVersion_{0};
 };

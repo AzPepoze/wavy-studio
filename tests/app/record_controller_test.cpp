@@ -58,6 +58,10 @@ TEST_CASE("offline takes land at compensated punch in with samples and one histo
             float(0.25 * std::sin(2 * std::numbers::pi * 440 * i / 48000));
     QString firstPath;
     for (int take = 0; take < 2; ++take) {
+        // Like a user: stop playback (its declick ramp finishes), place the playhead, then record.
+        audio.pause();
+        std::vector<float> silence(512 * 2);
+        audio.engine().renderOffline(silence.data(), 512);
         audio.seek(1000);
         audio.engine().recorder().setInputLatencyFrames(12);
         recorder.startRecording();
@@ -103,16 +107,20 @@ TEST_CASE("discontinuous input warns and keeps the accepted prefix") {
     recorder.armTrack(5, true);
     recorder.startRecording();
     REQUIRE(waitFor([&] { return recorder.recording(); }));
-    std::vector<float> samples(128, 0.25f);
+    std::vector<float> samples(512, 0.25f);
     audio.engine().feedInputOffline(samples.data(), 64);
     audio.engine().mixer().transport().seek(1000);
-    audio.engine().feedInputOffline(samples.data(), 64);
+    audio.engine().feedInputOffline(samples.data(), 512);
     recorder.stopRecording();
     REQUIRE(waitFor([&] { return !recorder.busy(); }));
-    CHECK(recorder.droppedFrames() == 64);
+    // A seek ramps the old audio down before the transport jumps, so the input stays contiguous
+    // for that long; everything after the jump is dropped. The ramp-down lasts as long as the
+    // ramp-up got to, which here is the 64 frames played before the seek (the full ramp is 3 ms).
+    constexpr qint64 ramp = 64;
+    CHECK(recorder.droppedFrames() == 512 - ramp);
     CHECK(recorder.lastError().contains("frames dropped"));
     REQUIRE(model.timeline().tracks().back().clips.size() == 1);
-    CHECK(model.timeline().tracks().back().clips.front().length == 64);
+    CHECK(model.timeline().tracks().back().clips.front().length == 64 + ramp);
 }
 
 TEST_CASE("recording names are Windows safe") {

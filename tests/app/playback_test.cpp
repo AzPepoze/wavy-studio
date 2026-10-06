@@ -68,26 +68,39 @@ TEST_CASE("offline playback synthesizes sine at clip offset and synchronizes tra
         audio.engine().renderOffline(output.data(), 4800);
         return std::abs(output[2]) > 0.001;
     }));
-    for (int i = 0; i < 4800; ++i) {
-        const auto expected = 0.2 * std::sin(2 * std::numbers::pi * 440 * i / 48000.0);
+    // A seek ramps the output down and up over about 6 ms to avoid a click, so exact values are
+    // checked once that declick has finished.
+    constexpr int settled = 300;
+    // The jump itself lands after the ramp-down, so the block's tail is located from the transport
+    // position at the end of the block, not from the seek target.
+    const auto blockEnd = audio.positionFrames();
+    for (int i = settled; i < 4800; ++i) {
+        const auto clipFrame = blockEnd - 4800 + i - 23;
+        const auto expected = 0.2 * std::sin(2 * std::numbers::pi * 440 * clipFrame / 48000.0);
         CHECK(output[i * 2] == doctest::Approx(expected).epsilon(0.00001));
         CHECK(output[i * 2 + 1] == output[i * 2]);
     }
     audio.seek(23 + 4800);
-    audio.engine().renderOffline(output.data(), 64);
-    CHECK(
-        std::all_of(output.begin(), output.begin() + 128, [](float value) { return value == 0; }));
+    audio.engine().renderOffline(output.data(), 512);
+    CHECK(std::all_of(output.begin() + settled * 2, output.begin() + 512 * 2,
+                      [](float value) { return value == 0; }));
     audio.seek(100);
-    audio.engine().renderOffline(output.data(), 64);
-    CHECK(output[0] == doctest::Approx(0.2 * std::sin(2 * std::numbers::pi * 440 * 77 / 48000.0)));
-    REQUIRE(waitUntil([&] { return model.playheadFrame() == 164; }));
+    audio.engine().renderOffline(output.data(), 512);
+    const auto secondEnd = audio.positionFrames();
+    CHECK(output[400 * 2] ==
+          doctest::Approx(
+              0.2 * std::sin(2 * std::numbers::pi * 440 * (secondEnd - 512 + 400 - 23) / 48000.0)));
+    REQUIRE(waitUntil([&] { return model.playheadFrame() == secondEnd; }));
     audio.pause();
-    CHECK(audio.positionFrames() == 164);
+    CHECK(audio.positionFrames() == secondEnd);
     CHECK(audio.playbackState() == "Paused");
+    // Pausing ramps the output down first, so silence and a fixed position are checked after that.
+    audio.engine().renderOffline(output.data(), 512);
+    CHECK(std::all_of(output.begin() + settled * 2, output.begin() + 512 * 2,
+                      [](float value) { return value == 0; }));
+    const auto pausedAt = audio.positionFrames();
     audio.engine().renderOffline(output.data(), 64);
-    CHECK(
-        std::all_of(output.begin(), output.begin() + 128, [](float value) { return value == 0; }));
-    CHECK(audio.positionFrames() == 164);
+    CHECK(audio.positionFrames() == pausedAt);
     model.setPlayheadFrame(400);
     CHECK(audio.positionFrames() == 400);
     audio.seek(-1);

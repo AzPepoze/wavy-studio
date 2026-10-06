@@ -402,8 +402,14 @@ TEST_CASE("Monitoring adds to playback and paused transport does not record") {
     CHECK(engine.mixer().transport().positionFrames() == 0);
     engine.mixer().transport().play();
     engine.feedInputOffline(input, 4, output, 1);
+    // Playback ramps in over a few milliseconds after play (declick), so the monitored input is
+    // checked exactly on top of a playback part that lies between silence and its final 0.25.
+    float previous = 0;
     for (unsigned frame = 0; frame < 4; ++frame) {
-        CHECK(output[frame * 2] == 0.25f + input[frame] * 0.5f);
+        const float playback = output[frame * 2] - input[frame] * 0.5f;
+        CHECK(playback >= previous);
+        CHECK(playback <= 0.25f);
+        previous = playback;
         CHECK(output[frame * 2 + 1] == output[frame * 2]);
     }
     const auto take = engine.recorder().stop();

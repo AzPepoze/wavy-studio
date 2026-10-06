@@ -245,8 +245,13 @@ void Mixer::render(float* out, std::size_t frames) noexcept {
             }
         }
     }
-    if (const auto request = transport_.requestedSeek_.exchange(-1); request >= 0)
-        seek_ = request;
+    for (auto request = transport_.requestedSeek_.load(); request >= 0;) {
+        transport_.pendingSeek_.store(request);
+        if (transport_.requestedSeek_.compare_exchange_weak(request, -1)) {
+            seek_ = request;
+            break;
+        }
+    }
     const bool playing = transport_.playing_.load();
     const auto rampFrames =
         std::max<std::size_t>(1, (current_ ? current_->sampleRate : 48000) * 3 / 1000);
@@ -314,6 +319,8 @@ void Mixer::render(float* out, std::size_t frames) noexcept {
     if (loop && position_ == end)
         position_ = begin;
     transport_.position_.store(position_);
+    if (seek_ < 0)
+        transport_.pendingSeek_.store(-1);
     transport_.audible_.store(gainFrame_ != 0);
 }
 } // namespace wavy

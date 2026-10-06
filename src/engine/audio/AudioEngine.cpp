@@ -47,7 +47,7 @@ struct AudioEngine::Impl {
                     if (recorder.channels() == 1 && channels == 2)
                         sample[0] = sample[0] * 0.5f + sample[1] * 0.5f;
                     recorder.capture(inputLost ? nullptr : sample, 1,
-                                     mixer.transport().positionFrames());
+                                     mixer.transport().nextRenderedFrame());
                 }
                 mixer.render(output + frame * 2, 1);
             }
