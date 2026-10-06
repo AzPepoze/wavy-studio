@@ -1,11 +1,10 @@
 # Wavy Studio
 
-A small C++20 / Qt 6 Quick desktop skeleton. The engine plays silence; there
-are no DAW features. xmake is the supported build system.
+A small C++23 / Qt 6 Quick audio workstation skeleton. The Qt-free engine
+renders timeline clips with optional stereo effects. xmake is the supported build system.
 
-Requirements: xmake 3.1.1+, a C++20 compiler and Qt 6 (Quick and QuickControls2).
-The audio loading API requires C++23 for `std::expected`; its source files and
-tests select C++23 while other targets retain C++20. A target sample rate of zero
+Requirements: xmake 3.1.1+, a C++23 compiler and Qt 6 (Quick and QuickControls2).
+The audio loading API uses `std::expected`. A target sample rate of zero
 keeps the native rate. Peak queries use whole pyramid buckets, conservatively
 including boundary samples at the selected resolution.
 Dependencies (RtAudio 6.0.1, doctest, miniaudio) are fetched by xmake via `add_requires`.
@@ -131,3 +130,12 @@ git config core.hooksPath .githooks
 
 Copyright (C) AzPepoze. Wavy Studio is licensed under the GNU General Public
 License v3.0 or later (see `LICENSE`); dependency licenses apply separately.
+
+- `src/engine/effects/`: Qt-free gain/pan, four-band RBJ EQ and linked peak/RMS compressor.
+- `tests/effects/`: device-free effects test suite.
+- `tests/effects/effects_test.cpp`: DSP response, timing, live parameters, allocation and 64-track benchmarks.
+
+Effect chains are prepared through `EffectChains` track-ID mappings and a master
+chain passed to `buildSnapshot`; slot parameter blocks are shared with the audio
+thread for live atomic edits. See `src/engine/README.md` for the control/render
+contract. Run the device-free tests with `xmake test effects_tests`.

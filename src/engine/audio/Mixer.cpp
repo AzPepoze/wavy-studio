@@ -18,9 +18,14 @@ void Mixer::mix(float* out, std::size_t frames, std::int64_t position) noexcept 
     if (!current_)
         return;
     const auto end = position + static_cast<std::int64_t>(frames);
-    for (const auto& track : current_->tracks) {
+    for (auto& track : current_->tracks) {
         if (track.muted || (current_->anySolo && !track.solo))
             continue;
+        const bool active = std::any_of(track.effects.begin(), track.effects.end(),
+                                        [](const auto& slot) { return !slot.bypassed; });
+        float* destination = active ? track.scratch.data() : out;
+        if (active)
+            std::fill_n(destination, frames * 2, 0.f);
         for (const auto& clip : track.clips) {
             if (clip.start >= end)
                 break;
@@ -42,17 +47,32 @@ void Mixer::mix(float* out, std::size_t frames, std::int64_t position) noexcept 
                 const auto dest = static_cast<std::size_t>(frame - position) * 2;
                 for (unsigned channel = 0; channel < 2; ++channel) {
                     const double value =
-                        out[dest + channel] +
+                        destination[dest + channel] +
                         gain * clip.source
                                    ->samples[index + (clip.source->channels == 1 ? 0 : channel)];
                     if (std::isfinite(value))
-                        out[dest + channel] = static_cast<float>(std::clamp(
+                        destination[dest + channel] = static_cast<float>(std::clamp(
                             value, -static_cast<double>(std::numeric_limits<float>::max()),
                             static_cast<double>(std::numeric_limits<float>::max())));
                 }
             }
         }
+        if (active) {
+            for (auto& slot : track.effects)
+                if (!slot.bypassed)
+                    slot.effect->process(destination, frames);
+            for (std::size_t i = 0; i < frames * 2; ++i) {
+                const double value = double(out[i]) + destination[i];
+                if (std::isfinite(value))
+                    out[i] = static_cast<float>(
+                        std::clamp(value, -double(std::numeric_limits<float>::max()),
+                                   double(std::numeric_limits<float>::max())));
+            }
+        }
     }
+    for (auto& slot : current_->masterEffects)
+        if (!slot.bypassed)
+            slot.effect->process(out, frames);
 }
 void Mixer::render(float* out, std::size_t frames) noexcept {
     if (!retired_.load(std::memory_order_acquire)) {
@@ -79,7 +99,9 @@ void Mixer::render(float* out, std::size_t frames) noexcept {
         if (loop && position >= end)
             position = begin + (position - begin) % (end - begin);
         const auto available = (loop ? end : std::numeric_limits<std::int64_t>::max()) - position;
-        const auto count = std::min(frames - rendered, static_cast<std::size_t>(available));
+        const auto capacity = current_ ? current_->maxBlockFrames : frames;
+        const auto count =
+            std::min({frames - rendered, static_cast<std::size_t>(available), capacity});
         if (!count)
             break;
         mix(out + rendered * 2, count, position);

@@ -2,14 +2,38 @@
 #include "core/Log.hpp"
 #include <algorithm>
 #include <limits>
+#include <stdexcept>
 
 namespace wavy {
 std::unique_ptr<Snapshot> buildSnapshot(const timeline::Timeline& timeline,
-                                        const SourceCache& cache) {
+                                        const SourceCache& cache, const EffectChains& chains,
+                                        std::size_t maxBlockFrames) {
+    if (!maxBlockFrames)
+        throw std::invalid_argument("Empty effect block capacity");
     auto result = std::make_unique<Snapshot>();
+    result->maxBlockFrames = maxBlockFrames;
+    const effects::EffectFactory factory;
+    auto prepare = [&](const auto& slots) {
+        std::vector<PreparedEffect> chain;
+        for (const auto& slot : slots) {
+            if (!slot.params)
+                throw std::invalid_argument("Effect slot requires shared parameters");
+            auto effect = factory.create(slot.typeId, slot.params);
+            if (!effect)
+                throw std::invalid_argument("Unknown effect type");
+            effect->prepare(timeline.sampleRate, maxBlockFrames);
+            chain.push_back({std::move(effect), slot.bypassed});
+        }
+        return chain;
+    };
+    result->masterEffects = prepare(chains.master);
     SourceCache loaded;
     for (const auto& track : timeline.tracks()) {
-        Snapshot::Track copy{track.gain, track.muted, track.solo, {}};
+        Snapshot::Track copy{track.gain, track.muted, track.solo, {}, {}, {}};
+        if (const auto it = chains.tracks.find(track.id); it != chains.tracks.end()) {
+            copy.effects = prepare(it->second);
+            copy.scratch.resize(maxBlockFrames * 2);
+        }
         result->anySolo |= track.solo;
         for (const auto& clip : track.clips) {
             std::shared_ptr<const AudioBuffer> source;
