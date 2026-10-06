@@ -142,6 +142,29 @@ target("mixer_tests")
     add_files("tests/audio/mixer_test.cpp")
     add_tests("mixer")
 
+target("ui_tests")
+    set_kind("phony")
+    add_tests("timeline")
+    on_test(function (target)
+        import("core.project.config")
+        import("lib.detect.find_tool")
+        import("detect.sdks.find_qt")
+        local qt = find_qt(config.get("qt"), {version = config.get("qt_sdkver")})
+        local paths = {"/usr/lib/qt6/bin"}
+        if qt and qt.bindir then
+            table.insert(paths, 1, qt.bindir)
+        end
+        local runner = find_tool("qmltestrunner", {paths = paths, norun = true, force = true})
+        if not runner then
+            print("Skipping UI tests: qmltestrunner not found; install Qt's test tools or add the Qt bin directory to PATH")
+            return true
+        end
+        os.execv(runner.program, {"-input", path.join(os.projectdir(), "tests", "ui")}, {
+            envs = {QT_QPA_PLATFORM = "offscreen", QT_QUICK_BACKEND = "software", QT_QPA_PLATFORMTHEME = ""}
+        })
+        return true
+    end)
+
 task("fmt")
     set_menu {
         usage = "xmake fmt",

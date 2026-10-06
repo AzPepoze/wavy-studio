@@ -64,6 +64,8 @@ xmake f -p mingw -a x86_64 --qt="<Windows Qt dir>" --mingw="<toolchain dir>"
 xmake
 ```
 
+Run the headless QML timeline tests with `xmake test "ui_tests/*"` (requires Qt’s `qmltestrunner`).
+
 ## Continuous integration
 
 GitHub Actions builds release binaries on Linux and Windows with xmake and
