@@ -111,7 +111,10 @@ target("wavy-studio")
               "src/app/EffectsController.hpp", "src/app/EffectsController.cpp",
               "src/app/SnapshotPublisher.hpp", "src/app/SnapshotPublisher.cpp",
               "src/app/TimelineModel.cpp", "src/app/TimelineModel.hpp",
-              "src/app/UserSettings.cpp", "src/app/UserSettings.hpp", "src/ui/ui.qrc")
+              "src/app/UserSettings.cpp", "src/app/UserSettings.hpp",
+              "src/app/WaveformBridge.hpp", "src/app/WaveformBridge.cpp",
+              "src/app/WaveformGeometry.hpp", "src/app/WaveformGeometry.cpp",
+              "src/app/WaveformItem.hpp", "src/app/WaveformItem.cpp", "src/ui/ui.qrc")
 
 target("engine_tests")
     set_kind("binary")
@@ -165,10 +168,31 @@ target("timeline_model_tests")
               "src/app/SnapshotPublisher.hpp", "src/app/SnapshotPublisher.cpp",
               "src/app/TimelineModel.cpp", "src/app/TimelineModel.hpp",
               "src/app/UserSettings.cpp", "src/app/UserSettings.hpp",
+              "src/app/WaveformBridge.hpp", "src/app/WaveformBridge.cpp",
+              "src/app/WaveformGeometry.hpp", "src/app/WaveformGeometry.cpp",
               "tests/app/timeline_model_test.cpp", "tests/app/playback_test.cpp",
-              "tests/app/record_controller_test.cpp", "tests/app/effects_controller_test.cpp")
+              "tests/app/record_controller_test.cpp", "tests/app/effects_controller_test.cpp",
+              "tests/app/waveform_test.cpp")
     add_includedirs("src/app")
     add_tests("timeline_model")
+
+target("waveform_qml_tests")
+    set_kind("binary")
+    add_rules("qt.console", "rtaudio_rpath")
+    add_frameworks("QtGui", "QtQuick", "QtQml", "QtTest", "QtQuickTest")
+    add_deps("wavy_engine")
+    add_packages("rtaudio")
+    add_files("src/app/WaveformBridge.hpp", "src/app/WaveformBridge.cpp",
+              "src/app/WaveformGeometry.hpp", "src/app/WaveformGeometry.cpp",
+              "src/app/WaveformItem.hpp", "src/app/WaveformItem.cpp",
+              "tests/app/WaveformQmlSetup.hpp", "tests/app/waveform_qml_test.cpp")
+    add_includedirs("src/app")
+    add_tests("waveform_qml", {
+        runargs = {"-input", path.join(os.projectdir(), "tests", "ui", "waveform_cases.qml")},
+        -- The software scenegraph backend skips generic QSGGeometryNode, so this test renders with
+        -- the offscreen OpenGL backend. Plain qmltestrunner harnesses still run with software.
+        envs = {QT_QPA_PLATFORM = "offscreen", QT_QUICK_BACKEND = "opengl", QT_QPA_PLATFORMTHEME = ""}
+    })
 
 target("mixer_tests")
     set_kind("binary")

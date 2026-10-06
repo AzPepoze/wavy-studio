@@ -42,6 +42,7 @@ Rectangle {
             clipData: modelData
             gridFrames: root.gridFrames
             pixelsPerFrame: root.pixelsPerFrame
+            laneWidth: root.width
             selected: root.selectedClipId === clipData.clipId
             snapEnabled: root.snapEnabled
             width: Math.max(Theme.clipMinimumWidth, clipData.durationFrames * pixelsPerFrame)

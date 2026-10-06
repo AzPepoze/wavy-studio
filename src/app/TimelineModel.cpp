@@ -109,11 +109,15 @@ QVariantList TimelineModel::visibleClips(int trackId, qint64 firstFrame, qint64 
     const int trackIndex = id.value > 0 ? static_cast<int>(id.value - 1) : 0;
     const auto clips = timeline_.clipsInRange(id, firstFrame, lastFrame);
     for (const auto* clip : clips)
-        result.push_back(QVariantMap{{"clipId", clip->id.value},
-                                     {"name", friendlyClipName(clip->source)},
-                                     {"startFrame", QVariant::fromValue<qint64>(clip->start)},
-                                     {"durationFrames", QVariant::fromValue<qint64>(clip->length)},
-                                     {"trackIndex", trackIndex}});
+        result.push_back(
+            QVariantMap{{"clipId", clip->id.value},
+                        {"name", friendlyClipName(clip->source)},
+                        {"source", QString::fromStdString(clip->source)},
+                        {"startFrame", QVariant::fromValue<qint64>(clip->start)},
+                        {"sourceOffset", QVariant::fromValue<qint64>(clip->sourceOffset)},
+                        {"durationFrames", QVariant::fromValue<qint64>(clip->length)},
+                        {"gain", static_cast<double>(clip->gain)},
+                        {"trackIndex", trackIndex}});
     return result;
 }
 

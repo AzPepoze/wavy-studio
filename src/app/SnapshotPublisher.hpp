@@ -20,6 +20,9 @@ class SnapshotPublisher final : public QObject {
     wavy::SourceLibrary& sourceLibrary() { return *library_; }
   signals:
     void published();
+    // Emitted on the GUI thread when a source finishes loading (ok false on failure). Forwarded to
+    // the waveform bridge; SnapshotPublisher keeps owning the library and its dirty flag.
+    void sourceReady(const QString& path, bool ok);
 
   private:
     void update();

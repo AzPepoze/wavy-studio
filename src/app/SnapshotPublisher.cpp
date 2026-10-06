@@ -7,8 +7,15 @@
 SnapshotPublisher::SnapshotPublisher(TimelineModel& model, wavy::Mixer& mixer, QObject* parent)
     : QObject(parent), model_(model), mixer_(mixer),
       library_(std::make_unique<wavy::SourceLibrary>(model.timeline().sampleRate)) {
-    library_->setOnReady([this](const std::string&, bool) {
-        QMetaObject::invokeMethod(this, [this] { dirty_ = true; }, Qt::QueuedConnection);
+    library_->setOnReady([this](const std::string& path, bool ok) {
+        const QString source = QString::fromStdString(path);
+        QMetaObject::invokeMethod(
+            this,
+            [this, source, ok] {
+                dirty_ = true;
+                emit sourceReady(source, ok);
+            },
+            Qt::QueuedConnection);
     });
     connect(&model_, &TimelineModel::timelineChanged, this, [this] { dirty_ = true; });
     timer_.setInterval(20);

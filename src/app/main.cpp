@@ -8,6 +8,8 @@
 #include "SnapshotPublisher.hpp"
 #include "TimelineModel.hpp"
 #include "UserSettings.hpp"
+#include "WaveformBridge.hpp"
+#include "WaveformItem.hpp"
 #include "core/Log.hpp"
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -60,12 +62,18 @@ int main(int argc, char* argv[]) {
     SnapshotPublisher publisher(timeline, audio.engine().mixer());
     publisher.setEffectsController(effects);
     UserSettings userSettings;
+    WaveformBridge waveformBridge;
+    waveformBridge.setLibrary(publisher.sourceLibrary());
+    QObject::connect(&publisher, &SnapshotPublisher::sourceReady, &waveformBridge,
+                     &WaveformBridge::sourceReady);
+    qmlRegisterType<WaveformItem>("Wavy.Waveform", 1, 0, "WaveformItem");
     QQmlApplicationEngine qml;
     qml.rootContext()->setContextProperty("audioEngine", &audio);
     qml.rootContext()->setContextProperty("recorder", &recorder);
     qml.rootContext()->setContextProperty("timelineModel", &timeline);
     qml.rootContext()->setContextProperty("effects", &effects);
     qml.rootContext()->setContextProperty("userSettings", &userSettings);
+    qml.rootContext()->setContextProperty("waveformBridge", &waveformBridge);
     qml.load(QUrl(QStringLiteral("qrc:/ui/main.qml")));
     if (qml.rootObjects().isEmpty())
         return 1;

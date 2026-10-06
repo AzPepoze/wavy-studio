@@ -38,8 +38,11 @@ QtObject {
             list.push({
                 clipId: nextId++,
                 name: clip.name,
+                source: clip.source,
+                sourceOffset: clip.sourceOffset,
                 startFrame: clip.startFrame + clip.durationFrames,
                 durationFrames: clip.durationFrames,
+                gain: clip.gain,
                 trackIndex: clip.trackIndex
             });
         if (operation === "split" && playheadFrame > clip.startFrame && playheadFrame < clip.startFrame + clip.durationFrames) {
@@ -48,8 +51,11 @@ QtObject {
             list.push({
                 clipId: nextId++,
                 name: clip.name,
+                source: clip.source,
+                sourceOffset: clip.sourceOffset + (playheadFrame - clip.startFrame),
                 startFrame: playheadFrame,
                 durationFrames: end - playheadFrame,
+                gain: clip.gain,
                 trackIndex: clip.trackIndex
             });
         }
@@ -71,6 +77,11 @@ QtObject {
             return;
         }
     }
+    function sourceFor(track: int): string {
+        const kind = ["sine", "saw", "square", "noise"][track % 4];
+        const hz = kind === "noise" ? 440 : 110 + (track % 8) * 55;
+        return "generated:" + kind + ":" + hz + ":0.2:2.4";
+    }
     function generate(): void {
         tracks.clear();
         clips = ({});
@@ -90,8 +101,11 @@ QtObject {
                 clips[t].push({
                     clipId: nextId++,
                     name: "Take " + (c + 1),
+                    source: sourceFor(t),
+                    sourceOffset: 0,
                     startFrame: (c * 3 + t * 0.4) * sampleRate,
                     durationFrames: sampleRate * 2.4,
+                    gain: 1,
                     trackIndex: t
                 });
             clipsChangedForTrack(t);
