@@ -1,7 +1,7 @@
 # Wavy Studio
 
-A small C++23 / Qt 6 Quick audio workstation skeleton. The Qt-free engine
-renders timeline clips with optional stereo effects. xmake is the supported build system.
+A C++23 / Qt 6 Quick desktop prototype with a Qt-free engine for timeline
+playback, per-track effects and audio recording. xmake is the supported build system.
 
 Requirements: xmake 3.1.1+, a C++23 compiler and Qt 6 (Quick and QuickControls2).
 The audio loading API uses `std::expected`. A target sample rate of zero
@@ -95,6 +95,19 @@ and `NO_COLOR`. Logging is not suitable for the audio callback.
 - `src/engine/timeline/`: timeline data model, edit commands and undo history.
 - `src/engine/timeline/CompoundCommand.hpp/.cpp`: ordered edits validated on a scratch timeline with cloned commands.
 - `src/engine/timeline/ClipCommands.cpp`: clip edits, including composite `EditClip` move and trim.
+- `src/engine/effects/`: Qt-free gain/pan, four-band RBJ EQ and linked peak/RMS compressor.
+- `tests/effects/`: device-free effects test suite.
+- `tests/effects/effects_test.cpp`: DSP response, timing, live parameters, allocation and 64-track benchmarks.
+- `src/engine/record/`: device-free audio capture and durable WAV streaming.
+- `src/engine/record/RingBuffer.hpp`: preallocated SPSC sample queue and overflow accounting.
+- `src/engine/record/WavWriter.hpp`: streaming float WAV writer API.
+- `src/engine/record/WavWriter.cpp`: exclusive file creation, durable header patches and RIFF size limit.
+- `src/engine/record/Recorder.hpp`: take metadata, capture API and atomic meters.
+- `src/engine/record/Recorder.cpp`: punch-in, writer thread and continuous-prefix recovery.
+- `src/engine/record/CommitTake.hpp`: recorded-take commit API.
+- `src/engine/record/CommitTake.cpp`: validated AddClip through undo history.
+- `tests/record/`: deterministic recording and disk throughput tests.
+- `tests/record/record_test.cpp`: SPSC concurrency, WAV recovery, punch-in, monitoring and allocation checks.
 - `tests/audio/`: deterministic device-free lifecycle test.
 - `tests/io/`: generated audio and peak tests.
 - `tests/timeline/`: command, history, stress and range-query tests.
@@ -116,6 +129,14 @@ engine runs without a device. The test explicitly selects `DeviceMode::NoDevice`
 so it never opens hardware. Smoke mode starts the default engine, loads the
 actual QML and exits successfully after 100 ms; QML load failure returns 1.
 
+Effect chains are prepared through `EffectChains` track-ID mappings and a master
+chain passed to `buildSnapshot`; slot parameter blocks are shared with the audio
+thread for live atomic edits. See `src/engine/README.md` for the control/render
+contract. Run the device-free tests with `xmake test effects_tests`.
+
+The recording API, latency convention and crash recovery limits are documented
+in [the engine README](src/engine/README.md).
+
 ## Contributing
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org):
@@ -130,12 +151,3 @@ git config core.hooksPath .githooks
 
 Copyright (C) AzPepoze. Wavy Studio is licensed under the GNU General Public
 License v3.0 or later (see `LICENSE`); dependency licenses apply separately.
-
-- `src/engine/effects/`: Qt-free gain/pan, four-band RBJ EQ and linked peak/RMS compressor.
-- `tests/effects/`: device-free effects test suite.
-- `tests/effects/effects_test.cpp`: DSP response, timing, live parameters, allocation and 64-track benchmarks.
-
-Effect chains are prepared through `EffectChains` track-ID mappings and a master
-chain passed to `buildSnapshot`; slot parameter blocks are shared with the audio
-thread for live atomic edits. See `src/engine/README.md` for the control/render
-contract. Run the device-free tests with `xmake test effects_tests`.
