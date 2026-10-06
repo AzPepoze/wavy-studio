@@ -240,6 +240,9 @@ TEST_CASE("Snapshot publisher consumes the controller chain without copying its 
     QObject::connect(&publisher, &SnapshotPublisher::published, [&] { ++publications; });
     settle();
     REQUIRE(publications > 0);
+    // A slow machine may still be decoding the clip; wait so the compressor is guaranteed input.
+    publisher.sourceLibrary().waitIdle();
+    settle();
     CHECK(slot.prepared(timeline.timeline().sampleRate, 512) == instance);
     mixer.transport().play();
     std::array<float, 1024> block;
