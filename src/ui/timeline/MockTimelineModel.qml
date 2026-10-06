@@ -1,4 +1,6 @@
+// In-memory demo/stress implementation of the documented timeline contract. Set stress for 100 × 200 clips.
 import QtQuick
+import "../theme"
 
 QtObject {
     id: root
@@ -64,7 +66,7 @@ QtObject {
         clips = ({});
         nextId = 0;
         let count = stress ? 100 : 4;
-        let colors = ["#497b9d", "#7a609e", "#4a8b79", "#a47748"];
+        let colors = Theme.trackPalette;
         for (let t = 0; t < count; ++t) {
             tracks.append({
                 trackId: t,
@@ -80,8 +82,9 @@ QtObject {
                     name: "Take " + (c + 1),
                     startFrame: (c * 3 + t * 0.4) * sampleRate,
                     durationFrames: sampleRate * 2.4,
-                    color: colors[t % 4]
+                    color: colors[t % colors.length]
                 });
+            clipsChangedForTrack(t);
         }
     }
     function setTrackState(index: int, role: string, value: bool): void {
