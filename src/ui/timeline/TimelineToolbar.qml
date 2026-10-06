@@ -7,6 +7,8 @@ Rectangle {
     id: root
     required property real seconds
     required property bool snapEnabled
+    property bool effectsVisible: false
+    signal effectsRequested()
     property real beatsPerMinute: 120
     signal zoomRequested(real factor)
     signal fitRequested()
@@ -20,6 +22,7 @@ Rectangle {
         anchors.leftMargin: Theme.space8
         anchors.verticalCenter: parent.verticalCenter
         spacing: Theme.space8
+        ToggleButton { text: "FX"; hint: "Show selected track effects"; checked: root.effectsVisible; onClicked: root.effectsRequested() }
         ZoomControls { onZoomRequested: factor => root.zoomRequested(factor); onFitRequested: root.fitRequested() }
         ToggleButton { text: "Snap"; width: Theme.headerWidth / 3; hint: "Snap edits to the grid"; checked: root.snapEnabled; onClicked: root.snapRequested(checked) }
     }

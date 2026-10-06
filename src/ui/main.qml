@@ -2,8 +2,9 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "timeline"
-import "theme"
+import "effects"
 import "record"
+import "theme"
 
 ApplicationWindow {
     id: window
@@ -53,6 +54,11 @@ ApplicationWindow {
         }
     }
     TimelineView {
+        id: timelineView
+        objectName: "timeline-view"
+        effectsVisible: rack.visible
+        bottomInset: rack.visible ? rack.height : 0
+        onEffectsRequested: rack.visible = !rack.visible
         anchors.fill: parent
         anchors.margins: Theme.space16
         timelineModel: window.timeline
@@ -81,6 +87,23 @@ ApplicationWindow {
         }
     }
     Timer { id: messageTimer; interval: Theme.messageDuration; onTriggered: window.recordingMessage = "" }
+    EffectRack {
+        id: rack
+        objectName: "effect-rack"
+        visible: false
+        controller: effects
+        trackId: timelineView.selectedTrackId
+        anchors.left: timelineView.left
+        anchors.right: timelineView.right
+        anchors.bottom: timelineView.bottom
+        height: Math.min(Theme.rackHeight, timelineView.height / 2)
+    }
+    Connections {
+        target: window.timeline
+        function onTimelineChanged(): void {
+            if (!effects.hasTrack(timelineView.selectedTrackId)) timelineView.selectedTrackId = -1;
+        }
+    }
     Shortcut { sequence: "Ctrl+Z"; onActivated: timelineModel.undo() }
     Shortcut { sequence: "Ctrl+Shift+Z"; onActivated: timelineModel.redo() }
     footer: ToolBar {

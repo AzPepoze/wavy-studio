@@ -181,3 +181,12 @@ git config core.hooksPath .githooks
 
 Copyright (C) AzPepoze. Wavy Studio is licensed under the GNU General Public
 License v3.0 or later (see `LICENSE`); dependency licenses apply separately.
+
+The timeline’s FX button opens the selected track’s effect rack. Select a track
+header with a click, or focus it with Tab and press Enter/Space. Add effects from
+the factory menu; use the up/down buttons to order them, Bypass to hear the dry
+track, and × to remove a slot. Parameter sliders accept arrows and fine mouse
+wheel adjustments; double-click or Ctrl+click restores the default. EQ bands
+and compressor detector modes use menus, with toggles for polarity and enabled
+states. New registered effects receive schema-driven controls automatically.
+Effect edits currently have no undo/redo and are not saved in project files.

@@ -2,6 +2,7 @@
 #ifdef QT_QML_DEBUG
 #undef QT_QML_DEBUG
 #endif
+#include "EffectsController.hpp"
 #include "EngineController.hpp"
 #include "RecordController.hpp"
 #include "SnapshotPublisher.hpp"
@@ -51,13 +52,16 @@ int main(int argc, char* argv[]) {
     if (smoke)
         wavy::log::info("app", "Running --smoke-test");
     TimelineModel timeline;
+    EffectsController effects(timeline);
     EngineController audio(timeline);
     RecordController recorder(timeline, audio);
     SnapshotPublisher publisher(timeline, audio.engine().mixer());
+    publisher.setEffectsController(effects);
     QQmlApplicationEngine qml;
     qml.rootContext()->setContextProperty("audioEngine", &audio);
     qml.rootContext()->setContextProperty("recorder", &recorder);
     qml.rootContext()->setContextProperty("timelineModel", &timeline);
+    qml.rootContext()->setContextProperty("effects", &effects);
     qml.load(QUrl(QStringLiteral("qrc:/ui/main.qml")));
     if (qml.rootObjects().isEmpty())
         return 1;

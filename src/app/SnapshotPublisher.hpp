@@ -8,12 +8,14 @@
 #include <unordered_set>
 
 class TimelineModel;
+class EffectsController;
 
 class SnapshotPublisher final : public QObject {
     Q_OBJECT
   public:
     SnapshotPublisher(TimelineModel& model, wavy::Mixer& mixer, QObject* parent = nullptr);
     ~SnapshotPublisher() override;
+    void setEffectsController(EffectsController& effects);
     // Shared source cache for future waveform drawing and import.
     wavy::SourceLibrary& sourceLibrary() { return *library_; }
   signals:
@@ -27,4 +29,5 @@ class SnapshotPublisher final : public QObject {
     std::unique_ptr<wavy::SourceLibrary> library_;
     std::unordered_set<std::string> reportedFailures_;
     bool dirty_ = true;
+    EffectsController* effects_ = nullptr;
 };

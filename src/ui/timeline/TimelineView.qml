@@ -20,6 +20,10 @@ Rectangle {
     readonly property real pixelsPerFrame: pixelsPerSecond / timelineModel.sampleRate
     property real pixelsPerSecond: Theme.defaultZoom
     property real scrollX: 0
+    property int selectedTrackId: -1
+    property int bottomInset: 0
+    property bool effectsVisible: false
+    signal effectsRequested()
     property int selectedClipId: -1
     readonly property real tickSeconds: Math.pow(2, Math.ceil(Math.log(Theme.tickSpacing / pixelsPerSecond) / Math.LN2))
     property var recordingController: null
@@ -54,6 +58,8 @@ Rectangle {
     TimelineKeyboard { editing: editing; onPlayPauseRequested: root.playPauseRequested() }
     TimelineToolbar {
         width: root.width
+        effectsVisible: root.effectsVisible
+        onEffectsRequested: root.effectsRequested()
         seconds: root.timelineModel.playheadFrame / root.timelineModel.sampleRate
         snapEnabled: root.snapEnabled
         onZoomRequested: factor => root.zoom(factor, root.laneWidth / 2)
@@ -62,9 +68,9 @@ Rectangle {
     }
     TimelineViewport {
         id: viewport
-        y: Theme.toolbarHeight; width: root.width; height: root.height - y
+        y: Theme.toolbarHeight; width: root.width; height: root.height - y - root.bottomInset
         timelineState: root
-        onSelected: (clip, trackId, rowIndex) => editing.select(clip, trackId, rowIndex)
+        onSelected: (clip, trackId, rowIndex) => { root.selectedTrackId = trackId; editing.select(clip, trackId, rowIndex); }
         onCleared: editing.clear()
         onMoved: (clip, rowIndex, deltaFrames, deltaY) => editing.move(clip, rowIndex, deltaFrames, deltaY)
         onTrimmed: (clip, trackId, leftDelta, rightDelta) => editing.trim(clip, trackId, leftDelta, rightDelta)

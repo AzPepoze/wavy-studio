@@ -32,6 +32,7 @@ QtObject {
     readonly property color transparent: "transparent"
     readonly property color waveform: "#d8e5f5"
     readonly property var trackPalette: ["#365d7b", "#655082", "#326759", "#785633", "#774c60", "#435e87", "#686131", "#3b666e"]
+    readonly property int rackHeight: 300
     readonly property int space4: 4
     readonly property int space8: 8
     readonly property int space12: 12

@@ -24,11 +24,11 @@ Item {
             return result;
         }
         function clipItems() { return items(view, item => item instanceof ClipItem); }
-        function clip(id) { return clipItems().find(item => item.clipData.clipId === id); }
-        function data(track, id) { return model.clips[track].find(item => item.clipId === id); }
+        function clipItem(id) { return clipItems().find(item => item.clipData.clipId === id); }
+        function clipData(track, id) { return model.clips[track].find(item => item.clipId === id); }
         function select(id) {
-            tryVerify(() => clip(id) !== undefined);
-            let item = clip(id);
+            tryVerify(() => clipItem(id) !== undefined);
+            let item = clipItem(id);
             mouseClick(item, item.width / 2, Theme.space12);
             compare(view.selectedClipId, id);
         }
@@ -47,69 +47,80 @@ Item {
             view.snapEnabled = true;
             keyClick(Qt.Key_Escape);
             view.forceActiveFocus();
-            tryVerify(() => clip(0) !== undefined && clip(0).clipData.startFrame === 0 && clip(0).clipData.durationFrames === model.sampleRate * 2.4);
+            tryVerify(() => clipItem(0) !== undefined && clipItem(0).clipData.startFrame === 0 && clipItem(0).clipData.durationFrames === model.sampleRate * 2.4);
             wait(Theme.viewportDelay + 1);
         }
 
+        function test_select_track_header() {
+            let header = items(view, item => item instanceof TrackHeader)[0];
+            verify(header !== undefined);
+            mouseClick(header, Theme.space12, Theme.space12);
+            compare(view.selectedTrackId, model.trackIdAt(0));
+            view.selectedTrackId = -1;
+            header.forceActiveFocus();
+            keyClick(Qt.Key_Space);
+            compare(view.selectedTrackId, model.trackIdAt(0));
+            verify(header.selected);
+        }
         function test_select_delete() {
             select(0);
             keyClick(Qt.Key_Delete);
             compare(model.clips[0].length, 2);
-            verify(data(0, 0) === undefined);
+            verify(clipData(0, 0) === undefined);
             compare(view.selectedClipId, -1);
-            tryVerify(() => clip(0) === undefined);
+            tryVerify(() => clipItem(0) === undefined);
         }
         function test_duplicate() {
             select(0);
-            let original = Object.assign({}, data(0, 0));
+            let original = Object.assign({}, clipData(0, 0));
             let id = model.nextId;
             keyClick(Qt.Key_D, Qt.ControlModifier);
             compare(model.clips[0].length, 4);
-            compare(data(0, id).startFrame, original.startFrame + original.durationFrames);
-            compare(data(0, id).durationFrames, original.durationFrames);
+            compare(clipData(0, id).startFrame, original.startFrame + original.durationFrames);
+            compare(clipData(0, id).durationFrames, original.durationFrames);
         }
         function test_split() {
             select(0);
-            let duration = data(0, 0).durationFrames;
+            let duration = clipData(0, 0).durationFrames;
             model.playheadFrame = duration / 2;
             let id = model.nextId;
             keyClick(Qt.Key_S);
             compare(model.clips[0].length, 4);
-            compare(data(0, 0).durationFrames, duration / 2);
-            compare(data(0, id).startFrame, model.playheadFrame);
-            compare(data(0, id).durationFrames, duration / 2);
+            compare(clipData(0, 0).durationFrames, duration / 2);
+            compare(clipData(0, id).startFrame, model.playheadFrame);
+            compare(clipData(0, id).durationFrames, duration / 2);
         }
         function test_cross_track_drag() {
-            let duration = data(0, 0).durationFrames;
-            drag(clip(0), clip(0).width / 2, Theme.defaultZoom, Theme.trackHeight);
-            verify(data(0, 0) === undefined);
-            compare(data(1, 0).startFrame, model.sampleRate);
-            compare(data(1, 0).durationFrames, duration);
+            let duration = clipData(0, 0).durationFrames;
+            drag(clipItem(0), clipItem(0).width / 2, Theme.defaultZoom, Theme.trackHeight);
+            verify(clipData(0, 0) === undefined);
+            compare(clipData(1, 0).startFrame, model.sampleRate);
+            compare(clipData(1, 0).durationFrames, duration);
             compare(view.selectedClipId, 0);
-            tryVerify(() => clip(0) !== undefined);
+            tryVerify(() => clipItem(0) !== undefined);
         }
         function test_trim_edges() {
-            let duration = data(0, 0).durationFrames;
-            drag(clip(0), clip(0).width - Theme.space4, Theme.defaultZoom, 0);
-            compare(data(0, 0).durationFrames, duration + model.sampleRate);
-            tryVerify(() => clip(0).width === data(0, 0).durationFrames * view.pixelsPerFrame);
-            drag(clip(0), Theme.space4, Theme.defaultZoom, 0);
-            compare(data(0, 0).startFrame, model.sampleRate);
-            compare(data(0, 0).durationFrames, duration);
+            let duration = clipData(0, 0).durationFrames;
+            drag(clipItem(0), clipItem(0).width - Theme.space4, Theme.defaultZoom, 0);
+            compare(clipData(0, 0).durationFrames, duration + model.sampleRate);
+            tryVerify(() => clipItem(0).width === clipData(0, 0).durationFrames * view.pixelsPerFrame);
+            drag(clipItem(0), Theme.space4, Theme.defaultZoom, 0);
+            compare(clipData(0, 0).startFrame, model.sampleRate);
+            compare(clipData(0, 0).durationFrames, duration);
         }
         function test_nudge() {
             select(0);
             keyClick(Qt.Key_Right);
-            compare(data(0, 0).startFrame, view.gridFrames);
+            compare(clipData(0, 0).startFrame, view.gridFrames);
             keyClick(Qt.Key_Down);
-            verify(data(0, 0) === undefined);
-            compare(data(1, 0).startFrame, view.gridFrames);
+            verify(clipData(0, 0) === undefined);
+            compare(clipData(1, 0).startFrame, view.gridFrames);
             keyClick(Qt.Key_Up);
-            compare(data(0, 0).startFrame, view.gridFrames);
+            compare(clipData(0, 0).startFrame, view.gridFrames);
             keyClick(Qt.Key_Left);
-            compare(data(0, 0).startFrame, 0);
+            compare(clipData(0, 0).startFrame, 0);
             keyClick(Qt.Key_Left);
-            compare(data(0, 0).startFrame, 0);
+            compare(clipData(0, 0).startFrame, 0);
         }
         function test_culling() {
             model.stress = true;
@@ -166,8 +177,8 @@ Item {
             verify(button !== undefined);
             mouseClick(button, button.width / 2, button.height / 2);
             compare(view.snapEnabled, false);
-            drag(clip(0), clip(0).width / 2, 17, 0);
-            compare(data(0, 0).startFrame, Math.round(17 / view.pixelsPerFrame));
+            drag(clipItem(0), clipItem(0).width / 2, 17, 0);
+            compare(clipData(0, 0).startFrame, Math.round(17 / view.pixelsPerFrame));
             mouseClick(button, button.width / 2, button.height / 2);
             compare(view.snapEnabled, true);
         }

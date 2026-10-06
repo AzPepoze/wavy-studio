@@ -1,4 +1,5 @@
 #include "SnapshotPublisher.hpp"
+#include "EffectsController.hpp"
 #include "TimelineModel.hpp"
 #include "core/Log.hpp"
 #include <QMetaObject>
@@ -21,6 +22,12 @@ SnapshotPublisher::~SnapshotPublisher() {
     mixer_.collectRetired();
 }
 
+void SnapshotPublisher::setEffectsController(EffectsController& effects) {
+    effects_ = &effects;
+    connect(&effects, &EffectsController::structureChanged, this, [this] { dirty_ = true; });
+    dirty_ = true;
+}
+
 void SnapshotPublisher::update() {
     mixer_.collectRetired();
     if (!dirty_)
@@ -41,6 +48,10 @@ void SnapshotPublisher::update() {
             // Null entries prevent buildSnapshot from decoding on the control thread.
             cache.emplace(clip.source, source ? source->audio : nullptr);
         }
-    mixer_.publish(wavy::buildSnapshot(model_.timeline(), cache));
+    auto snapshot = wavy::buildSnapshot(model_.timeline(), cache,
+                                        effects_ ? effects_->chains() : wavy::EffectChains{});
+    if (effects_)
+        effects_->observeSnapshot(*snapshot);
+    mixer_.publish(std::move(snapshot));
     emit published();
 }

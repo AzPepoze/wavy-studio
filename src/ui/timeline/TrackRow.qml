@@ -20,6 +20,8 @@ Item {
     required property int selectedClipId
     required property bool snapEnabled
     required property int viewportRevision
+    property bool trackSelected: false
+    signal trackSelectedRequested()
     property var visibleClips: []
     signal selected(var clip, int trackId, int rowIndex)
     signal cleared()
@@ -41,6 +43,8 @@ Item {
     }
     TrackHeader {
         recordingController: root.recordingController; trackId: root.trackId
+        selected: root.trackSelected
+        onSelectedRequested: root.trackSelectedRequested()
         name: root.name; muted: root.muted; solo: root.solo
         width: Theme.headerWidth; height: root.height - Theme.lineWidth
         onStateRequested: (role, value) => root.timelineModel.setTrackState(root.rowIndex, role, value)

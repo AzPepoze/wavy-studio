@@ -1,4 +1,4 @@
-// Track identity and mute/solo actions. Requires name and states; emits stateRequested(role, value).
+// Track identity, selection and mute/solo. Emits selectedRequested() and stateRequested(role, value).
 import QtQuick
 import "../theme"
 import "../record"
@@ -10,9 +10,18 @@ Rectangle {
     required property string name
     required property bool muted
     required property bool solo
+    property bool selected: false
+    signal selectedRequested()
+    activeFocusOnTab: true
+    Accessible.name: "Select track " + name
+    Accessible.role: Accessible.Button
+    Keys.onShortcutOverride: event => { if (event.key === Qt.Key_Space || event.key === Qt.Key_Return) event.accepted = true; }
+    Keys.onReturnPressed: selectedRequested()
+    Keys.onSpacePressed: selectedRequested()
+    TapHandler { onTapped: { root.forceActiveFocus(); root.selectedRequested(); } }
     signal stateRequested(string role, bool value)
     color: Theme.surface
-    border.color: Theme.border
+    border.color: selected || activeFocus ? Theme.accent : Theme.border
     border.width: Theme.lineWidth
     Text {
         x: Theme.space12

@@ -36,6 +36,8 @@ Item {
             rowIndex: index; timelineModel: root.timelineState.timelineModel
             scrollX: root.timelineState.scrollX; laneWidth: root.timelineState.laneWidth; pixelsPerFrame: root.timelineState.pixelsPerFrame
             pixelsPerSecond: root.timelineState.pixelsPerSecond; tickSeconds: root.timelineState.tickSeconds; gridFrames: root.timelineState.gridFrames
+            trackSelected: root.timelineState.selectedTrackId === trackId
+            onTrackSelectedRequested: { root.timelineState.selectedTrackId = trackId; }
             selectedClipId: root.timelineState.selectedClipId; snapEnabled: root.timelineState.snapEnabled; viewportRevision: root.timelineState.viewportRevision
             onSelected: (clip, trackId, rowIndex) => root.selected(clip, trackId, rowIndex)
             onCleared: root.cleared()
