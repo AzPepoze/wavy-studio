@@ -4,6 +4,8 @@
 #include <QObject>
 #include <QTimer>
 #include <memory>
+#include <string>
+#include <unordered_set>
 
 class TimelineModel;
 
@@ -23,5 +25,6 @@ class SnapshotPublisher final : public QObject {
     wavy::Mixer& mixer_;
     QTimer timer_;
     std::unique_ptr<wavy::SourceLibrary> library_;
+    std::unordered_set<std::string> reportedFailures_;
     bool dirty_ = true;
 };

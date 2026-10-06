@@ -1,5 +1,6 @@
 #include "SnapshotPublisher.hpp"
 #include "TimelineModel.hpp"
+#include "core/Log.hpp"
 #include <QMetaObject>
 
 SnapshotPublisher::SnapshotPublisher(TimelineModel& model, wavy::Mixer& mixer, QObject* parent)
@@ -32,6 +33,11 @@ void SnapshotPublisher::update() {
                 continue;
             library_->request(clip.source);
             const auto source = library_->get(clip.source);
+            // A source that failed to load is reported once; one that is still loading is expected.
+            if (!source && library_->state(clip.source) == wavy::SourceLibrary::State::Failed &&
+                reportedFailures_.insert(clip.source).second)
+                wavy::log::error("source", "Cannot load {}: {}", clip.source,
+                                 wavy::toString(library_->error(clip.source)));
             // Null entries prevent buildSnapshot from decoding on the control thread.
             cache.emplace(clip.source, source ? source->audio : nullptr);
         }

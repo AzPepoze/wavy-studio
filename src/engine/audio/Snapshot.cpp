@@ -37,9 +37,12 @@ std::unique_ptr<Snapshot> buildSnapshot(const timeline::Timeline& timeline,
         result->anySolo |= track.solo;
         for (const auto& clip : track.clips) {
             std::shared_ptr<const AudioBuffer> source;
-            if (auto it = cache.find(clip.source); it != cache.end())
+            bool loading = false;
+            if (auto it = cache.find(clip.source); it != cache.end()) {
                 source = it->second;
-            else if (auto it = loaded.find(clip.source); it != loaded.end())
+                // A null cache entry is the caller's way of saying "still loading, stay silent".
+                loading = !source;
+            } else if (auto it = loaded.find(clip.source); it != loaded.end())
                 source = it->second;
             else {
                 auto audio = loadAudioFile(clip.source, timeline.sampleRate);
@@ -50,7 +53,10 @@ std::unique_ptr<Snapshot> buildSnapshot(const timeline::Timeline& timeline,
                 loaded.emplace(clip.source, source);
             }
             if (!source || source->sampleRate != timeline.sampleRate || !source->channels) {
-                log::error("mixer", "Missing or incompatible source: {}", clip.source);
+                if (loading)
+                    log::debug("mixer", "Source still loading: {}", clip.source);
+                else
+                    log::error("mixer", "Missing or incompatible source: {}", clip.source);
                 continue;
             }
             if (clip.start < 0 || clip.length <= 0 || clip.sourceOffset < 0 ||
