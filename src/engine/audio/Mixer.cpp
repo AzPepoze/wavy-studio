@@ -34,11 +34,31 @@ void process(const std::vector<PreparedEffect>& chain, float* out, std::size_t f
         if (!slot.bypassed)
             slot.effect->process(out, frames);
 }
+// One gain ramp of a clip envelope. `table` is a fade law (rise 0->1 or fall 1->0); the ramp covers
+// local frames [offset, offset + length] inclusive, with `reverse` evaluating the law back to
+// front.
+struct Ramp {
+    const float* table;
+    std::int64_t offset, length;
+    bool reverse;
+};
+float rampGain(const Ramp& ramp, std::int64_t local) noexcept {
+    auto phase = static_cast<float>(local - ramp.offset) / static_cast<float>(ramp.length);
+    if (ramp.reverse)
+        phase = 1.f - phase;
+    return fadeLookup(ramp.table, phase);
+}
+void addRamp(std::array<Ramp, 6>& ramps, std::size_t& count, std::int64_t offset,
+             std::int64_t length, const float* table, bool reverse) noexcept {
+    if (length > 0 && count < ramps.size())
+        ramps[count++] = {table, offset, length, reverse};
+}
 void dryMix(Snapshot::Track& track, bool anySolo, unsigned rate, float* destination,
             std::size_t frames, std::int64_t position) noexcept {
     if (track.muted || (anySolo && !track.solo))
         return;
     const auto end = position + static_cast<std::int64_t>(frames);
+    const auto minimum = std::max<std::int64_t>(1, rate / 1000);
     for (const auto& clip : track.clips) {
         if (clip.start >= end)
             break;
@@ -50,67 +70,167 @@ void dryMix(Snapshot::Track& track, bool anySolo, unsigned rate, float* destinat
         if (begin >= finish)
             continue;
         const double gain = static_cast<double>(track.gain) * clip.gain;
-        const auto minimum = std::max<std::int64_t>(1, rate / 1000);
         const auto in = std::max(clip.fadeIn, minimum);
         const auto fadeLength = std::min(clip.length, playable);
         const auto fade = std::max(clip.fadeOut, minimum);
         const auto edgeCount = std::min(minimum + 1, playable);
-        const bool cachedEdges =
-            clip.edges.source == clip.source.get() && clip.edges.offset == clip.sourceOffset &&
-            clip.edges.length == playable && clip.fadeIn <= minimum && clip.fadeOut <= minimum;
-        const auto fadeInEnd = clip.start + std::clamp(in, begin - clip.start, finish - clip.start);
-        const auto fadeOutBegin =
-            clip.start + std::clamp(fadeLength - 1 - fade, begin - clip.start, finish - clip.start);
-        std::array boundaries{begin, std::min(fadeInEnd, fadeOutBegin),
-                              std::max(fadeInEnd, fadeOutBegin), finish};
-        for (std::size_t region = 0; region < 3; ++region) {
-            const auto first = boundaries[region], last = boundaries[region + 1];
-            if (first == last)
+        const bool simpleFades = clip.fadeIn <= minimum && clip.fadeOut <= minimum;
+        const bool cross = clip.crossIn > 0 || clip.crossOut > 0;
+        if (simpleFades && !cross) {
+            // The 1 ms declick is linear, so the original fast paths still apply verbatim.
+            const bool cachedEdges = clip.edges.source == clip.source.get() &&
+                                     clip.edges.offset == clip.sourceOffset &&
+                                     clip.edges.length == playable;
+            const auto fadeInEnd =
+                clip.start + std::clamp(in, begin - clip.start, finish - clip.start);
+            const auto fadeOutBegin =
+                clip.start +
+                std::clamp(fadeLength - 1 - fade, begin - clip.start, finish - clip.start);
+            std::array boundaries{begin, std::min(fadeInEnd, fadeOutBegin),
+                                  std::max(fadeInEnd, fadeOutBegin), finish};
+            for (std::size_t region = 0; region < 3; ++region) {
+                const auto first = boundaries[region], last = boundaries[region + 1];
+                if (first == last)
+                    continue;
+                const auto local = first - clip.start;
+                const bool fadeIn = local < in;
+                const bool fadeOut = local >= fadeLength - 1 - fade;
+                const auto* source = clip.source->samples.data() +
+                                     (clip.sourceOffset + local) * clip.source->channels;
+                auto* dest = destination + (first - position) * 2;
+                const auto count = last - first;
+                if (!fadeIn && !fadeOut) {
+                    const float steady = static_cast<float>(gain);
+                    if (clip.source->channels == 1) {
+                        for (std::int64_t i = 0; i < count; ++i) {
+                            dest[i * 2] += source[i] * steady;
+                            dest[i * 2 + 1] += source[i] * steady;
+                        }
+                    } else if (clip.source->channels == 2) {
+                        for (std::int64_t i = 0; i < count * 2; ++i)
+                            dest[i] += source[i] * steady;
+                    } else {
+                        for (std::int64_t i = 0; i < count; ++i) {
+                            dest[i * 2] += source[i * clip.source->channels] * steady;
+                            dest[i * 2 + 1] += source[i * clip.source->channels + 1] * steady;
+                        }
+                    }
+                } else if (cachedEdges &&
+                           (local + count <= edgeCount || local >= playable - edgeCount)) {
+                    const auto offset =
+                        local < edgeCount ? local : edgeCount + local - (playable - edgeCount);
+                    const auto* edge = clip.edges.samples.data() + offset * 2;
+                    const float steady = static_cast<float>(gain);
+                    for (std::int64_t i = 0; i < count * 2; ++i)
+                        dest[i] += edge[i] * steady;
+                } else {
+                    const double inScale = 1. / in, outScale = 1. / fade;
+                    for (std::int64_t i = 0; i < count; ++i) {
+                        double ramp = gain;
+                        if (fadeIn)
+                            ramp *= static_cast<double>(local + i) * inScale;
+                        if (fadeOut)
+                            ramp *= static_cast<double>(fadeLength - 1 - local - i) * outScale;
+                        const auto index = i * clip.source->channels;
+                        dest[i * 2] = static_cast<float>(dest[i * 2] + ramp * source[index]);
+                        dest[i * 2 + 1] = static_cast<float>(
+                            dest[i * 2 + 1] +
+                            ramp * source[index + (clip.source->channels == 1 ? 0 : 1)]);
+                    }
+                }
+            }
+            continue;
+        }
+        // General path: user-curve fades and/or automatic crossfades. The envelope is the product
+        // of independent ramps, so it is split at every ramp edge and evaluated from the shared
+        // tables. A crossfaded edge already ramps from/to silence, so it replaces the 1 ms declick
+        // there; only a non-crossfaded edge keeps the declick floor or the longer user fade.
+        const auto crossIn = std::clamp(clip.crossIn, std::int64_t{0}, playable);
+        const auto crossOutOffset = std::clamp(clip.crossOutOffset, std::int64_t{0}, playable);
+        const auto crossOut = std::clamp(clip.crossOut, std::int64_t{0}, playable - crossOutOffset);
+        std::array<Ramp, 6> ramps{};
+        std::size_t rampCount = 0;
+        if (crossIn > 0) {
+            addRamp(ramps, rampCount, 0, crossIn, fadeTable(clip.fadeInCurve, true), false);
+            if (clip.fadeIn > 0)
+                addRamp(ramps, rampCount, 0, clip.fadeIn, fadeTable(clip.fadeInCurve, true), false);
+        } else {
+            const auto in = std::max(clip.fadeIn, minimum);
+            addRamp(
+                ramps, rampCount, 0, in,
+                fadeTable(clip.fadeIn > minimum ? clip.fadeInCurve : timeline::FadeCurve::Linear,
+                          true),
+                false);
+        }
+        if (crossOut > 0) {
+            const auto* crossOutTable = fadeTable(clip.crossOutCurve, false);
+            addRamp(ramps, rampCount, crossOutOffset, crossOut, crossOutTable, false);
+            const auto returnOffset = crossOutOffset + crossOut;
+            addRamp(ramps, rampCount, returnOffset, std::min(crossOut, playable - 1 - returnOffset),
+                    crossOutTable, true);
+            if (clip.fadeOut > 0)
+                addRamp(ramps, rampCount, fadeLength - 1 - clip.fadeOut, clip.fadeOut,
+                        fadeTable(clip.fadeOutCurve, false), false);
+        } else {
+            const auto fade = std::max(clip.fadeOut, minimum);
+            addRamp(
+                ramps, rampCount, fadeLength - 1 - fade, fade,
+                fadeTable(clip.fadeOut > minimum ? clip.fadeOutCurve : timeline::FadeCurve::Linear,
+                          false),
+                false);
+        }
+        std::array<std::int64_t, 16> bounds{};
+        std::size_t boundCount = 0;
+        auto addBound = [&](std::int64_t value) {
+            bounds[boundCount++] = std::clamp(value, std::int64_t{0}, playable);
+        };
+        addBound(0);
+        addBound(playable);
+        addBound(begin - clip.start);
+        addBound(finish - clip.start);
+        for (std::size_t i = 0; i < rampCount; ++i) {
+            addBound(ramps[i].offset);
+            addBound(ramps[i].offset + ramps[i].length + 1);
+        }
+        std::sort(bounds.begin(), bounds.end());
+        boundCount = std::unique(bounds.begin(), bounds.end()) - bounds.begin();
+        for (std::size_t region = 0; region + 1 < boundCount; ++region) {
+            const auto lo = bounds[region], hi = bounds[region + 1];
+            if (lo < begin - clip.start || hi > finish - clip.start || lo >= hi)
                 continue;
-            const auto local = first - clip.start;
-            const bool fadeIn = local < in;
-            const bool fadeOut = local >= fadeLength - 1 - fade;
-            const auto* source =
-                clip.source->samples.data() + (clip.sourceOffset + local) * clip.source->channels;
-            auto* dest = destination + (first - position) * 2;
-            const auto count = last - first;
-            if (!fadeIn && !fadeOut) {
+            const Ramp* active[6];
+            std::size_t activeCount = 0;
+            for (std::size_t i = 0; i < rampCount; ++i)
+                if (ramps[i].offset <= lo && hi <= ramps[i].offset + ramps[i].length + 1)
+                    active[activeCount++] = &ramps[i];
+            const auto count = hi - lo;
+            const auto channels = clip.source->channels;
+            const auto* source = clip.source->samples.data() + (clip.sourceOffset + lo) * channels;
+            auto* dest = destination + (clip.start + lo - position) * 2;
+            if (activeCount == 0) {
                 const float steady = static_cast<float>(gain);
-                if (clip.source->channels == 1) {
+                if (channels == 1) {
                     for (std::int64_t i = 0; i < count; ++i) {
                         dest[i * 2] += source[i] * steady;
                         dest[i * 2 + 1] += source[i] * steady;
                     }
-                } else if (clip.source->channels == 2) {
+                } else if (channels == 2) {
                     for (std::int64_t i = 0; i < count * 2; ++i)
                         dest[i] += source[i] * steady;
                 } else {
                     for (std::int64_t i = 0; i < count; ++i) {
-                        dest[i * 2] += source[i * clip.source->channels] * steady;
-                        dest[i * 2 + 1] += source[i * clip.source->channels + 1] * steady;
+                        dest[i * 2] += source[i * channels] * steady;
+                        dest[i * 2 + 1] += source[i * channels + 1] * steady;
                     }
                 }
-            } else if (cachedEdges &&
-                       (local + count <= edgeCount || local >= playable - edgeCount)) {
-                const auto offset =
-                    local < edgeCount ? local : edgeCount + local - (playable - edgeCount);
-                const auto* edge = clip.edges.samples.data() + offset * 2;
-                const float steady = static_cast<float>(gain);
-                for (std::int64_t i = 0; i < count * 2; ++i)
-                    dest[i] += edge[i] * steady;
             } else {
-                const double inScale = 1. / in, outScale = 1. / fade;
                 for (std::int64_t i = 0; i < count; ++i) {
-                    double ramp = gain;
-                    if (fadeIn)
-                        ramp *= static_cast<double>(local + i) * inScale;
-                    if (fadeOut)
-                        ramp *= static_cast<double>(fadeLength - 1 - local - i) * outScale;
-                    const auto index = i * clip.source->channels;
-                    dest[i * 2] = static_cast<float>(dest[i * 2] + ramp * source[index]);
-                    dest[i * 2 + 1] = static_cast<float>(
-                        dest[i * 2 + 1] +
-                        ramp * source[index + (clip.source->channels == 1 ? 0 : 1)]);
+                    float ramp = static_cast<float>(gain);
+                    for (std::size_t a = 0; a < activeCount; ++a)
+                        ramp *= rampGain(*active[a], lo + i);
+                    const auto index = i * channels;
+                    dest[i * 2] += ramp * source[index];
+                    dest[i * 2 + 1] += ramp * source[index + (channels == 1 ? 0 : 1)];
                 }
             }
         }

@@ -94,6 +94,74 @@ std::array<float, 32> render(Mixer& mixer) {
     mixer.render(out.data(), 16);
     return out;
 }
+std::shared_ptr<AudioBuffer> buffer(std::size_t frames, float value, unsigned channels = 1) {
+    return std::make_shared<AudioBuffer>(
+        AudioBuffer{48000, channels, std::vector<float>(frames * channels, value)});
+}
+struct ClipSpec {
+    std::string source;
+    std::int64_t start = 0, length = 1, sourceOffset = 0, fadeIn = 0, fadeOut = 0;
+    float gain = 1.f;
+    timeline::FadeCurve inCurve = timeline::FadeCurve::EqualPower;
+    timeline::FadeCurve outCurve = timeline::FadeCurve::EqualPower;
+    bool muted = false;
+};
+std::unique_ptr<Snapshot> multiTrack(unsigned rate,
+                                     const std::vector<std::vector<ClipSpec>>& tracks,
+                                     const SourceCache& cache) {
+    timeline::Timeline timeline;
+    timeline.sampleRate = rate;
+    std::vector<timeline::TrackId> ids;
+    for (std::size_t t = 0; t < tracks.size(); ++t) {
+        timeline::AddTrack track("t" + std::to_string(t));
+        track.apply(timeline);
+        ids.push_back(track.trackId());
+    }
+    for (std::size_t t = 0; t < tracks.size(); ++t)
+        for (const auto& c : tracks[t]) {
+            timeline::Clip clip;
+            clip.source = c.source;
+            clip.start = c.start;
+            clip.length = c.length;
+            clip.sourceOffset = c.sourceOffset;
+            clip.fadeIn = c.fadeIn;
+            clip.fadeOut = c.fadeOut;
+            clip.gain = c.gain;
+            clip.fadeInCurve = c.inCurve;
+            clip.fadeOutCurve = c.outCurve;
+            clip.muted = c.muted;
+            timeline::AddClip add(ids[t], clip);
+            add.apply(timeline);
+        }
+    return buildSnapshot(timeline, cache);
+}
+std::vector<float> renderFrames(Mixer& mixer, std::size_t frames) {
+    std::vector<float> out(frames * 2);
+    mixer.render(out.data(), frames);
+    return out;
+}
+double riseLaw(timeline::FadeCurve curve, double p) {
+    switch (curve) {
+    case timeline::FadeCurve::Linear:
+        return p;
+    case timeline::FadeCurve::EqualPower:
+        return std::sin(p * std::acos(-1.) / 2);
+    case timeline::FadeCurve::Exponential:
+        return (1 - std::exp(-4 * p)) / (1 - std::exp(-4.));
+    }
+    return p;
+}
+double fallLaw(timeline::FadeCurve curve, double p) {
+    switch (curve) {
+    case timeline::FadeCurve::Linear:
+        return 1 - p;
+    case timeline::FadeCurve::EqualPower:
+        return std::cos(p * std::acos(-1.) / 2);
+    case timeline::FadeCurve::Exponential:
+        return 1 - riseLaw(curve, p);
+    }
+    return 1 - p;
+}
 } // namespace
 TEST_CASE("Clip positions, offsets, gains, fades and silence") {
     auto audio = source();
@@ -320,6 +388,10 @@ TEST_CASE("Mixer fade regions match the sample-wise reference across seeks and l
                 clip.sourceOffset = 2;
                 clip.fadeIn = fadeIn;
                 clip.fadeOut = fadeOut;
+                // This reference is the linear law, so pin both curves instead of the EqualPower
+                // default.
+                clip.fadeInCurve = timeline::FadeCurve::Linear;
+                clip.fadeOutCurve = timeline::FadeCurve::Linear;
                 for (std::int64_t seek : {0, 4, 10, 18, 30, 2}) {
                     Mixer mixer;
                     mixer.publish(std::make_unique<Snapshot>(*s));
@@ -563,4 +635,298 @@ TEST_CASE("Render partitioning leaves transport and snapshot fades sample exact"
         blocks.collectRetired();
         samples.collectRetired();
     }
+}
+
+TEST_CASE("Muted clips are dropped from the snapshot and render silently") {
+    auto audio = buffer(64, 1.f);
+    ClipSpec spec;
+    spec.source = "a";
+    spec.length = 32;
+    spec.muted = true;
+    auto s = multiTrack(48000, {{spec}}, {{"a", audio}});
+    REQUIRE(s->tracks.size() == 1);
+    CHECK(s->tracks[0].clips.empty());
+    Mixer mixer;
+    mixer.publish(std::move(s));
+    mixer.transport().play();
+    for (float sample : renderFrames(mixer, 32))
+        CHECK(sample == 0.f);
+}
+
+TEST_CASE("User fade curves follow their documented laws") {
+    constexpr std::int64_t fade = 1000, length = 3000, start = 200;
+    for (auto curve : {timeline::FadeCurve::Linear, timeline::FadeCurve::EqualPower,
+                       timeline::FadeCurve::Exponential}) {
+        auto audio = buffer(length, 1.f);
+        ClipSpec spec;
+        spec.source = "c";
+        spec.start = start;
+        spec.length = length;
+        spec.fadeIn = fade;
+        spec.fadeOut = fade;
+        spec.inCurve = curve;
+        spec.outCurve = curve;
+        Mixer mixer;
+        mixer.publish(multiTrack(48000, {{spec}}, {{"c", audio}}));
+        mixer.transport().play();
+        const auto out = renderFrames(mixer, static_cast<std::size_t>(start + length));
+        for (std::int64_t i : {0, 1, 100, 250, 500, 750, 999}) {
+            const auto p = static_cast<double>(i) / fade;
+            CHECK(out[static_cast<std::size_t>(start + i) * 2] ==
+                  doctest::Approx(riseLaw(curve, p)).epsilon(1e-4));
+            CHECK(out[static_cast<std::size_t>(start + length - 1 - i) * 2] ==
+                  doctest::Approx(fallLaw(curve, 1 - p)).epsilon(1e-4));
+        }
+    }
+}
+
+TEST_CASE("Linear crossfade of identical constant clips keeps a constant level") {
+    constexpr std::int64_t length = 2000, overlap = 1000;
+    constexpr float level = .5f;
+    auto audio = buffer(length, level);
+    ClipSpec a;
+    a.source = "c";
+    a.length = length;
+    a.inCurve = timeline::FadeCurve::Linear;
+    a.outCurve = timeline::FadeCurve::Linear;
+    ClipSpec b = a;
+    b.start = overlap;
+    Mixer mixer;
+    mixer.publish(multiTrack(48000, {{a, b}}, {{"c", audio}}));
+    mixer.transport().play();
+    const auto out = renderFrames(mixer, static_cast<std::size_t>(overlap + length));
+    for (std::int64_t i = 0; i < overlap; ++i)
+        CHECK(std::abs(out[static_cast<std::size_t>(overlap + i) * 2] - level) < 1e-4f);
+    CHECK(std::abs(out[500 * 2] - level) < 1e-4f);
+    CHECK(std::abs(out[2500 * 2] - level) < 1e-4f);
+}
+
+TEST_CASE("EqualPower crossfade of uncorrelated clips keeps a constant RMS") {
+    constexpr std::int64_t length = 2400, overlap = 1440;
+    auto sine = [](double frequency) {
+        auto audio =
+            std::make_shared<AudioBuffer>(AudioBuffer{48000, 1, std::vector<float>(length)});
+        for (std::size_t i = 0; i < audio->samples.size(); ++i)
+            audio->samples[i] = .5f * float(std::sin(2 * std::acos(-1.) * frequency * i / 48000));
+        return audio;
+    };
+    ClipSpec a;
+    a.source = "a";
+    a.length = length;
+    ClipSpec b = a;
+    b.source = "b";
+    b.start = length - overlap;
+    Mixer mixer;
+    mixer.publish(multiTrack(48000, {{a, b}}, {{"a", sine(1000)}, {"b", sine(2500)}}));
+    mixer.transport().play();
+    const auto out = renderFrames(mixer, static_cast<std::size_t>(overlap + length));
+    auto rms = [&](std::size_t from, std::size_t count) {
+        double sum = 0;
+        for (std::size_t i = 0; i < count; ++i) {
+            const double value = out[(from + i) * 2];
+            sum += value * value;
+        }
+        return std::sqrt(sum / count);
+    };
+    const double reference = rms(200, 480);
+    for (std::size_t window = 0; window + 480 <= overlap; window += 480) {
+        const double db = 20 * std::log10(rms(overlap + window, 480) / reference);
+        CHECK(std::abs(db) < 0.2);
+    }
+}
+
+TEST_CASE("Crossfades duck under a nested or short later clip and return") {
+    constexpr float level = .5f;
+    constexpr std::int64_t length = 1000;
+    {
+        auto audio = buffer(length, level);
+        ClipSpec a;
+        a.source = "c";
+        a.start = 200;
+        a.length = length;
+        a.inCurve = timeline::FadeCurve::Linear;
+        a.outCurve = timeline::FadeCurve::Linear;
+        ClipSpec b = a;
+        b.start = 400;
+        b.length = 600;
+        Mixer mixer;
+        mixer.publish(multiTrack(48000, {{a, b}}, {{"c", audio}}));
+        mixer.transport().play();
+        const auto out = renderFrames(mixer, length + 300);
+        CHECK(out[300 * 2] == doctest::Approx(level));
+        CHECK(out[700 * 2] == doctest::Approx(level));
+        CHECK(std::abs(out[1000 * 2]) < .05f);
+        CHECK(out[1100 * 2] ==
+              doctest::Approx(level * fallLaw(timeline::FadeCurve::Linear, 1 - 100.0 / 199)));
+        CHECK(out[1199 * 2] == doctest::Approx(level));
+    }
+    {
+        auto audio = buffer(length, level);
+        ClipSpec a;
+        a.source = "c";
+        a.start = 200;
+        a.length = length;
+        a.inCurve = timeline::FadeCurve::Linear;
+        a.outCurve = timeline::FadeCurve::Linear;
+        ClipSpec b = a;
+        b.start = 800;
+        b.length = 100;
+        Mixer mixer;
+        mixer.publish(multiTrack(48000, {{a, b}}, {{"c", audio}}));
+        mixer.transport().play();
+        const auto out = renderFrames(mixer, length + 300);
+        CHECK(out[850 * 2] == doctest::Approx(level));
+        CHECK(std::abs(out[900 * 2]) < .1f);
+        CHECK(out[950 * 2] > 0.f);
+        CHECK(out[950 * 2] < level);
+        CHECK(out[1000 * 2] == doctest::Approx(level));
+        CHECK(out[1199 * 2] == doctest::Approx(level));
+    }
+}
+
+TEST_CASE("Three chained clips crossfade to a constant level") {
+    constexpr float level = .5f;
+    constexpr std::int64_t length = 2000, overlap = 1000;
+    auto audio = buffer(length, level);
+    ClipSpec a;
+    a.source = "c";
+    a.length = length;
+    a.inCurve = timeline::FadeCurve::Linear;
+    a.outCurve = timeline::FadeCurve::Linear;
+    ClipSpec b = a;
+    b.start = overlap;
+    ClipSpec c = a;
+    c.start = 2 * overlap;
+    Mixer mixer;
+    mixer.publish(multiTrack(48000, {{a, b, c}}, {{"c", audio}}));
+    mixer.transport().play();
+    const auto out = renderFrames(mixer, static_cast<std::size_t>(3 * overlap));
+    CHECK(out[500 * 2] == doctest::Approx(level));
+    for (std::int64_t i = 0; i < overlap; ++i)
+        CHECK(std::abs(out[static_cast<std::size_t>(overlap + i) * 2] - level) < 1e-4f);
+    for (std::int64_t i = 0; i < overlap; ++i)
+        CHECK(std::abs(out[static_cast<std::size_t>(2 * overlap + i) * 2] - level) < 1e-4f);
+    CHECK(out[2500 * 2] == doctest::Approx(level));
+}
+
+TEST_CASE("User fades multiply with the crossfade gains") {
+    constexpr float level = .5f;
+    constexpr std::int64_t length = 2000, overlap = 1000, fade = 1000;
+    auto audio = buffer(length, level);
+    ClipSpec a;
+    a.source = "c";
+    a.length = length;
+    a.fadeOut = fade;
+    a.inCurve = timeline::FadeCurve::Linear;
+    a.outCurve = timeline::FadeCurve::Linear;
+    ClipSpec b = a;
+    b.start = overlap;
+    b.fadeIn = fade;
+    b.fadeOut = 0;
+    Mixer mixer;
+    mixer.publish(multiTrack(48000, {{a, b}}, {{"c", audio}}));
+    mixer.transport().play();
+    const auto out = renderFrames(mixer, static_cast<std::size_t>(overlap + length));
+    const auto t = .5;
+    const auto aGain = fallLaw(timeline::FadeCurve::Linear, t) *
+                       fallLaw(timeline::FadeCurve::Linear, (1500. - 999) / fade);
+    const auto bGain = riseLaw(timeline::FadeCurve::Linear, t) *
+                       riseLaw(timeline::FadeCurve::Linear, (1500. - 1000) / fade);
+    CHECK(out[1500 * 2] == doctest::Approx(level * (aGain + bGain)).epsilon(1e-3));
+}
+
+TEST_CASE("A one-frame overlap crossfades without a bump") {
+    constexpr float level = .5f;
+    auto audio = buffer(200, level);
+    ClipSpec a;
+    a.source = "c";
+    a.start = 200;
+    a.length = 100;
+    a.inCurve = timeline::FadeCurve::Linear;
+    a.outCurve = timeline::FadeCurve::Linear;
+    ClipSpec b = a;
+    b.start = 299;
+    Mixer mixer;
+    mixer.publish(multiTrack(48000, {{a, b}}, {{"c", audio}}));
+    mixer.transport().play();
+    const auto out = renderFrames(mixer, 450);
+    CHECK(out[298 * 2] == doctest::Approx(level));
+    CHECK(out[299 * 2] == doctest::Approx(level));
+    CHECK(out[300 * 2] == doctest::Approx(level));
+}
+
+TEST_CASE("Overlapping clips on different tracks still sum") {
+    constexpr float one = .5f, two = .25f;
+    ClipSpec a;
+    a.source = "a";
+    a.length = 1000;
+    ClipSpec b;
+    b.source = "b";
+    b.length = 1000;
+    Mixer mixer;
+    mixer.publish(
+        multiTrack(48000, {{a}, {b}}, {{"a", buffer(1000, one)}, {"b", buffer(1000, two)}}));
+    mixer.transport().play();
+    const auto out = renderFrames(mixer, 1000);
+    CHECK(out[500 * 2] == doctest::Approx(one + two));
+    CHECK(out[900 * 2] == doctest::Approx(one + two));
+}
+
+TEST_CASE("Crossfade boundaries are independent of render block size") {
+    constexpr std::int64_t length = 2000, overlap = 1000;
+    auto audio = buffer(length, .5f);
+    ClipSpec a;
+    a.source = "c";
+    a.length = length;
+    a.fadeIn = 200;
+    a.inCurve = timeline::FadeCurve::EqualPower;
+    a.outCurve = timeline::FadeCurve::Linear;
+    ClipSpec b = a;
+    b.start = overlap;
+    b.fadeOut = 300;
+    auto s = multiTrack(48000, {{a, b}}, {{"c", audio}});
+    auto renderBlocks = [](Mixer& mixer, std::size_t total, std::size_t block) {
+        std::vector<float> out(total * 2);
+        for (std::size_t done = 0; done < total;) {
+            const auto count = std::min(block, total - done);
+            mixer.render(out.data() + done * 2, count);
+            done += count;
+        }
+        return out;
+    };
+    Mixer reference;
+    reference.publish(std::make_unique<Snapshot>(*s));
+    reference.transport().play();
+    const auto expected = renderBlocks(reference, overlap + length, 512);
+    for (std::size_t block : {1u, 7u, 64u}) {
+        Mixer mixer;
+        mixer.publish(std::make_unique<Snapshot>(*s));
+        mixer.transport().play();
+        const auto actual = renderBlocks(mixer, overlap + length, block);
+        CHECK(actual == expected);
+    }
+}
+
+TEST_CASE("Crossfade rendering never allocates or frees") {
+    constexpr std::int64_t length = 2000, overlap = 1000;
+    auto audio = buffer(length, .5f);
+    ClipSpec a;
+    a.source = "c";
+    a.length = length;
+    a.fadeIn = 200;
+    a.inCurve = timeline::FadeCurve::EqualPower;
+    ClipSpec b = a;
+    b.start = overlap;
+    b.fadeOut = 300;
+    Mixer mixer;
+    mixer.publish(multiTrack(48000, {{a, b}}, {{"c", audio}}));
+    mixer.transport().play();
+    std::array<float, 128> out;
+    allocations = frees = 0;
+    countMemory = true;
+    for (int i = 0; i < 1000; ++i)
+        mixer.render(out.data(), 64);
+    countMemory = false;
+    CHECK(allocations == 0);
+    CHECK(frees == 0);
 }
