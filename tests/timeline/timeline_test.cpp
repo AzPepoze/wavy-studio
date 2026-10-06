@@ -4,6 +4,7 @@
 #include "timeline/History.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <doctest/doctest.h>
 #include <limits>
 #include <random>
@@ -95,6 +96,16 @@ TEST_CASE("Every edit restores exact state and replays the same ids") {
     roundTrip(timeline, mute);
     SetTrackSolo solo(a, true);
     roundTrip(timeline, solo);
+    SetClipMuted clipMute(clip, true);
+    roundTrip(timeline, clipMute);
+    SetClipFades fades(clip, 3, 4, FadeCurve::Linear, FadeCurve::Exponential);
+    roundTrip(timeline, fades);
+    SlipClip slip(clip, 12);
+    roundTrip(timeline, slip);
+    SetTempo tempo(140.0);
+    roundTrip(timeline, tempo);
+    SetTimeSignature signature(3, 4);
+    roundTrip(timeline, signature);
 }
 TEST_CASE("Compound edits validate sequential state and restore ids and order") {
     Timeline timeline;
@@ -356,6 +367,164 @@ TEST_CASE("History chains, branch clearing, bounds, merging and id lifetime") {
     newTrack.apply(timeline);
     CHECK(oldTrack.trackId() != newTrack.trackId());
 }
+TEST_CASE("Repeated clip and tempo edits merge into one undo step") {
+    Timeline timeline;
+    const auto track = addTrack(timeline);
+    const auto clip = addClip(timeline, track);
+    const auto initial = timeline;
+    History history(timeline);
+    REQUIRE(history.execute(
+        std::make_unique<SetClipFades>(clip, 1, 1, FadeCurve::Linear, FadeCurve::Linear)));
+    REQUIRE(history.execute(
+        std::make_unique<SetClipFades>(clip, 3, 2, FadeCurve::Exponential, FadeCurve::EqualPower)));
+    REQUIRE(history.execute(std::make_unique<SlipClip>(clip, 11)));
+    REQUIRE(history.execute(std::make_unique<SlipClip>(clip, 14)));
+    REQUIRE(history.execute(std::make_unique<SetTempo>(100.0)));
+    REQUIRE(history.execute(std::make_unique<SetTempo>(150.0)));
+    REQUIRE(history.execute(std::make_unique<SetClipMuted>(clip, true)));
+    REQUIRE(history.execute(std::make_unique<SetClipMuted>(clip, true)));
+    const auto edited = timeline;
+    CHECK(timeline.findClip(clip)->clip->fadeIn == 3);
+    CHECK(timeline.findClip(clip)->clip->fadeOut == 2);
+    CHECK(timeline.findClip(clip)->clip->fadeInCurve == FadeCurve::Exponential);
+    CHECK(timeline.findClip(clip)->clip->fadeOutCurve == FadeCurve::EqualPower);
+    CHECK(timeline.findClip(clip)->clip->sourceOffset == 14);
+    CHECK(timeline.tempoBpm == 150.0);
+    CHECK(timeline.findClip(clip)->clip->muted);
+    REQUIRE(history.undo());
+    CHECK_FALSE(timeline.findClip(clip)->clip->muted);
+    REQUIRE(history.undo());
+    CHECK(timeline.tempoBpm == 120.0);
+    REQUIRE(history.undo());
+    CHECK(timeline.findClip(clip)->clip->sourceOffset == 5);
+    REQUIRE(history.undo());
+    CHECK(timeline == initial);
+    CHECK_FALSE(history.canUndo());
+    while (history.redo()) {
+    }
+    CHECK(timeline == edited);
+}
+TEST_CASE("New command validation leaves timeline and history untouched") {
+    Timeline timeline;
+    const auto track = addTrack(timeline);
+    const auto clip = addClip(timeline, track);
+    const auto before = timeline;
+    History history(timeline);
+    CHECK_FALSE(history.execute(std::make_unique<SetClipMuted>(ClipId{999}, true)));
+    CHECK_FALSE(history.execute(
+        std::make_unique<SetClipFades>(ClipId{999}, 0, 0, FadeCurve::Linear, FadeCurve::Linear)));
+    CHECK_FALSE(history.execute(
+        std::make_unique<SetClipFades>(clip, -1, 0, FadeCurve::Linear, FadeCurve::Linear)));
+    CHECK_FALSE(history.execute(
+        std::make_unique<SetClipFades>(clip, 0, 21, FadeCurve::Linear, FadeCurve::Linear)));
+    CHECK_FALSE(history.execute(
+        std::make_unique<SetClipFades>(clip, 0, 0, static_cast<FadeCurve>(7), FadeCurve::Linear)));
+    CHECK_FALSE(history.execute(std::make_unique<SlipClip>(ClipId{999}, 0)));
+    CHECK_FALSE(history.execute(std::make_unique<SlipClip>(clip, -1)));
+    CHECK_FALSE(
+        history.execute(std::make_unique<SlipClip>(clip, std::numeric_limits<Frames>::max())));
+    CHECK_FALSE(history.execute(std::make_unique<SetTempo>(19.9)));
+    CHECK_FALSE(history.execute(std::make_unique<SetTempo>(1000.0)));
+    CHECK_FALSE(
+        history.execute(std::make_unique<SetTempo>(std::numeric_limits<double>::infinity())));
+    CHECK_FALSE(
+        history.execute(std::make_unique<SetTempo>(std::numeric_limits<double>::quiet_NaN())));
+    CHECK_FALSE(history.execute(std::make_unique<SetTimeSignature>(0, 4)));
+    CHECK_FALSE(history.execute(std::make_unique<SetTimeSignature>(65, 4)));
+    CHECK_FALSE(history.execute(std::make_unique<SetTimeSignature>(4, 3)));
+    CHECK_FALSE(history.execute(std::make_unique<SetTimeSignature>(4, 64)));
+    CHECK_FALSE(history.execute(std::make_unique<AddClip>(
+        track,
+        Clip{{}, "bad", 0, 0, 1, 1.f, 0, 0, false, static_cast<FadeCurve>(9), FadeCurve::Linear})));
+    CHECK(timeline == before);
+    CHECK_FALSE(history.canUndo());
+    CHECK_FALSE(history.canRedo());
+}
+TEST_CASE("Split and duplicate carry clip mute and fade curves") {
+    Timeline timeline;
+    const auto track = addTrack(timeline);
+    AddClip add(
+        track,
+        {{}, "audio", 10, 5, 20, 0.8f, 4, 6, true, FadeCurve::Linear, FadeCurve::Exponential});
+    REQUIRE(add.validate(timeline));
+    add.apply(timeline);
+    const auto id = add.createdClipId();
+
+    DuplicateClip duplicate(id);
+    REQUIRE(duplicate.validate(timeline));
+    duplicate.apply(timeline);
+    const auto copy = timeline.findClip(duplicate.createdClipId())->clip;
+    CHECK(copy->muted);
+    CHECK(copy->fadeIn == 4);
+    CHECK(copy->fadeOut == 6);
+    CHECK(copy->fadeInCurve == FadeCurve::Linear);
+    CHECK(copy->fadeOutCurve == FadeCurve::Exponential);
+    duplicate.revert(timeline);
+
+    SplitClip split(id, 20);
+    REQUIRE(split.validate(timeline));
+    split.apply(timeline);
+    const auto& pieces = timeline.tracks()[0].clips;
+    REQUIRE(pieces.size() == 2);
+    CHECK(pieces[0].muted);
+    CHECK(pieces[0].fadeIn == 4);
+    CHECK(pieces[0].fadeOut == 0);
+    CHECK(pieces[0].fadeInCurve == FadeCurve::Linear);
+    CHECK(pieces[0].fadeOutCurve == FadeCurve::EqualPower);
+    CHECK(pieces[1].muted);
+    CHECK(pieces[1].fadeIn == 0);
+    CHECK(pieces[1].fadeOut == 6);
+    CHECK(pieces[1].fadeInCurve == FadeCurve::EqualPower);
+    CHECK(pieces[1].fadeOutCurve == FadeCurve::Exponential);
+    split.revert(timeline);
+    CHECK(timeline.findClip(id)->clip->fadeOutCurve == FadeCurve::Exponential);
+
+    // The two fades are independent, so their sum may overlap inside a short clip.
+    SetClipFades overlapping(id, 18, 18, FadeCurve::Linear, FadeCurve::Linear);
+    CHECK(overlapping.validate(timeline));
+}
+TEST_CASE("Tempo conversions round trip beats, frames and bars") {
+    const Tempo common{120.0, 4, 4, 48000};
+    CHECK(common.framesPerBeat() == 24000.0);
+    CHECK(common.beatsToFrames(1.0) == 24000);
+    CHECK(common.beatsToFrames(2.5) == 60000);
+    CHECK(common.framesToBeats(24000) == 1.0);
+    CHECK(common.framesPerBar() == 96000.0);
+
+    const Tempo waltz{120.0, 3, 4, 48000};
+    CHECK(waltz.framesPerBar() == 72000.0);
+    const Tempo sixEight{120.0, 6, 8, 48000};
+    CHECK(sixEight.framesPerBar() == 72000.0);
+
+    const Tempo odd{97.5, 4, 4, 44100};
+    CHECK(odd.framesPerBeat() == 44100.0 * 60.0 / 97.5);
+    for (const double beats : {0.0, 0.25, 1.0, 3.7, 123.456}) {
+        const auto frames = odd.beatsToFrames(beats);
+        CHECK(std::abs(odd.framesToBeats(frames) - beats) <= 0.5 / odd.framesPerBeat());
+    }
+    for (const Frames frames : {Frames{0}, Frames{1}, Frames{12345}, Frames{1000000}})
+        CHECK(odd.beatsToFrames(odd.framesToBeats(frames)) == frames);
+
+    Timeline timeline;
+    timeline.sampleRate = 48000;
+    timeline.tempoBpm = 150.0;
+    timeline.timeSignatureNumerator = 6;
+    timeline.timeSignatureDenominator = 8;
+    CHECK(timeline.framesPerBeat() == 19200.0);
+    CHECK(timeline.beatsToFrames(4.0) == 76800);
+    CHECK(timeline.framesPerBar() == 57600.0);
+
+    Timeline::Restorer restorer(44100);
+    restorer.setTempo(90.0);
+    restorer.setTimeSignature(7, 8);
+    restorer.addTrack({TrackId{1}, "T", {}, 1.f, false, false});
+    const auto built = restorer.build();
+    CHECK(built.sampleRate == 44100u);
+    CHECK(built.tempoBpm == 90.0);
+    CHECK(built.timeSignatureNumerator == 7u);
+    CHECK(built.timeSignatureDenominator == 8u);
+    CHECK(built.framesPerBeat() == 44100.0 * 60.0 / 90.0);
+}
 TEST_CASE("Seeded random edits and undo redo preserve invariants") {
     wavy::log::setLevel(wavy::log::Level::Warn);
     Timeline timeline;
@@ -377,7 +546,7 @@ TEST_CASE("Seeded random edits and undo redo preserve invariants") {
                     ids.push_back(c.id);
             const auto id = ids.empty() ? ClipId{999999} : ids[rng() % ids.size()];
             std::unique_ptr<Command> command;
-            switch (rng() % 14) {
+            switch (rng() % 19) {
             case 0:
                 command = std::make_unique<AddClip>(
                     track, Clip{{}, "random", Frames(rng() % 1000), 10, 50});
@@ -419,6 +588,30 @@ TEST_CASE("Seeded random edits and undo redo preserve invariants") {
             case 12:
                 command = std::make_unique<EditClip>(id, track, rng() % 1000, 1 + rng() % 100);
                 break;
+            case 13: {
+                const auto location = timeline.findClip(id);
+                const Frames length = location ? location->clip->length : 1;
+                command = std::make_unique<SetClipFades>(
+                    id, Frames(rng() % (length + 1)), Frames(rng() % (length + 1)),
+                    static_cast<FadeCurve>(rng() % 3), static_cast<FadeCurve>(rng() % 3));
+                break;
+            }
+            case 14:
+                command = std::make_unique<SetClipMuted>(id, rng() % 2);
+                break;
+            case 15:
+                command = std::make_unique<SlipClip>(id, rng() % 100000);
+                break;
+            case 16:
+                command = std::make_unique<SetTempo>(20.0 + (rng() % 980));
+                break;
+            case 17: {
+                static const unsigned numerators[] = {1, 2, 3, 4, 6, 7, 12, 64};
+                static const unsigned denominators[] = {1, 2, 4, 8, 16, 32};
+                command = std::make_unique<SetTimeSignature>(numerators[rng() % 8],
+                                                             denominators[rng() % 6]);
+                break;
+            }
             default:
                 command = timeline.tracks().size() > 1
                               ? std::unique_ptr<Command>(std::make_unique<RemoveTrack>(track))

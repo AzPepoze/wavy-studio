@@ -38,6 +38,7 @@ using json = nlohmann::ordered_json;
 using Frames = timeline::Frames;
 using timeline::Clip;
 using timeline::ClipId;
+using timeline::FadeCurve;
 using timeline::Track;
 using timeline::TrackId;
 
@@ -48,8 +49,8 @@ ProjectError fail(ProjectError::Code code, std::string message) {
 }
 
 // JSON numbers are doubles, so a float such as 0.8f would print as 0.800000011920929. The shortest
-// decimal that round-trips the float is readable and reads back as exactly the same float.
-double readableFloat(float value) { return std::stod(std::format("{}", value)); }
+// decimal that round-trips the value is readable and reads back as exactly the same value.
+template <typename T> double readableFloat(T value) { return std::stod(std::format("{}", value)); }
 
 bool writeDurable(const fs::path& path, std::string_view bytes, std::string& error) {
 #ifdef _WIN32
@@ -274,6 +275,50 @@ bool gainValue(const json& value, float& out) {
     return true;
 }
 
+std::string_view fadeCurveName(FadeCurve curve) {
+    switch (curve) {
+    case FadeCurve::Linear:
+        return "linear";
+    case FadeCurve::EqualPower:
+        return "equalPower";
+    case FadeCurve::Exponential:
+        return "exponential";
+    }
+    return "equalPower";
+}
+
+std::optional<FadeCurve> parseFadeCurve(std::string_view name) {
+    if (name == "linear")
+        return FadeCurve::Linear;
+    if (name == "equalPower")
+        return FadeCurve::EqualPower;
+    if (name == "exponential")
+        return FadeCurve::Exponential;
+    return std::nullopt;
+}
+
+std::optional<ProjectError> optionalCurve(const json& object, const std::string& path,
+                                          const char* key, FadeCurve& out) {
+    const json* value = findField(object, key);
+    if (!value)
+        return std::nullopt;
+    if (!value->is_string())
+        return fail(ProjectError::Code::Validation, path + "." + key + ": expected a curve name");
+    const auto curve = parseFadeCurve(value->get<std::string>());
+    if (!curve)
+        return fail(ProjectError::Code::Validation, path + "." + key + ": unknown fade curve \"" +
+                                                        value->get<std::string>() + "\"");
+    out = *curve;
+    return std::nullopt;
+}
+
+bool validTimeSignature(unsigned numerator, unsigned denominator) {
+    if (numerator < 1 || numerator > 64)
+        return false;
+    return denominator == 1 || denominator == 2 || denominator == 4 || denominator == 8 ||
+           denominator == 16 || denominator == 32;
+}
+
 std::optional<ProjectError> requiredInteger(const json& object, const std::string& path,
                                             const char* key, Frames& out) {
     const json* value = findField(object, key);
@@ -325,6 +370,16 @@ std::optional<ProjectError> parseClip(const json& object, const std::string& pat
     if (!gainValue(*gain, out.gain))
         return fail(ProjectError::Code::Validation,
                     path + ".gain: expected a finite non-negative number");
+
+    if (const json* muted = findField(object, "muted")) {
+        if (!muted->is_boolean())
+            return fail(ProjectError::Code::Validation, path + ".muted: expected a boolean");
+        out.muted = muted->get<bool>();
+    }
+    if (auto error = optionalCurve(object, path, "fadeInCurve", out.fadeInCurve))
+        return error;
+    if (auto error = optionalCurve(object, path, "fadeOutCurve", out.fadeOutCurve))
+        return error;
 
     if (out.start < 0)
         return fail(ProjectError::Code::Validation, path + ".start: must not be negative");
@@ -407,6 +462,32 @@ std::optional<ProjectError> parseDocument(const json& document, const fs::path& 
     if (!nextClipJson || !unsignedValue(*nextClipJson, nextClip, true))
         return fail(ProjectError::Code::Validation,
                     "root.nextClipId: expected an integer in [0, 4294967295]");
+
+    double tempoBpm = 120.0;
+    if (const json* tempo = findField(document, "tempo")) {
+        if (!tempo->is_number())
+            return fail(ProjectError::Code::Validation, "root.tempo: expected a number");
+        tempoBpm = tempo->get<double>();
+        if (!std::isfinite(tempoBpm) || tempoBpm < 20.0 || tempoBpm > 999.0)
+            return fail(ProjectError::Code::Validation,
+                        "root.tempo: must be a finite number in [20, 999]");
+    }
+    unsigned numerator = 4, denominator = 4;
+    if (const json* signature = findField(document, "timeSignature")) {
+        if (!signature->is_array() || signature->size() != 2)
+            return fail(ProjectError::Code::Validation,
+                        "root.timeSignature: expected [numerator, denominator]");
+        std::uint32_t parsedNumerator = 0, parsedDenominator = 0;
+        if (!unsignedValue((*signature)[0], parsedNumerator, false) || parsedNumerator > 64)
+            return fail(ProjectError::Code::Validation,
+                        "root.timeSignature[0]: numerator must be an integer in [1, 64]");
+        if (!unsignedValue((*signature)[1], parsedDenominator, false) ||
+            !validTimeSignature(parsedNumerator, parsedDenominator))
+            return fail(ProjectError::Code::Validation,
+                        "root.timeSignature[1]: denominator must be one of 1, 2, 4, 8, 16, 32");
+        numerator = parsedNumerator;
+        denominator = parsedDenominator;
+    }
 
     const json* tracksJson = findField(document, "tracks");
     if (!tracksJson || !tracksJson->is_array())
@@ -519,8 +600,8 @@ std::optional<ProjectError> parseDocument(const json& document, const fs::path& 
 
     // Preserve top-level keys this build does not understand.
     static const std::set<std::string, std::less<>> known = {
-        "format",      "version",    "appVersion", "sampleRate",
-        "nextTrackId", "nextClipId", "tracks",     "clips"};
+        "format",        "version",     "appVersion", "sampleRate", "tempo",
+        "timeSignature", "nextTrackId", "nextClipId", "tracks",     "clips"};
     for (const auto& [key, value] : document.items())
         if (!known.contains(key))
             meta.extensions[key] = value.dump();
@@ -529,6 +610,8 @@ std::optional<ProjectError> parseDocument(const json& document, const fs::path& 
     for (auto& track : tracks)
         restorer.addTrack(std::move(track));
     restorer.setCounters(TrackId{nextTrack}, ClipId{nextClip});
+    restorer.setTempo(tempoBpm);
+    restorer.setTimeSignature(numerator, denominator);
     loaded.timeline = restorer.build();
     loaded.meta = std::move(meta);
     return std::nullopt;
@@ -543,6 +626,13 @@ std::optional<ProjectError> validateForSave(const timeline::Timeline& timeline) 
     const auto clipPath = [](std::size_t track, std::size_t clip) {
         return "tracks[" + std::to_string(track) + "].clips[" + std::to_string(clip) + "]";
     };
+    if (!std::isfinite(timeline.tempoBpm) || timeline.tempoBpm < 20.0 || timeline.tempoBpm > 999.0)
+        return fail(ProjectError::Code::Validation,
+                    "root.tempo: must be a finite number in [20, 999]");
+    if (!validTimeSignature(timeline.timeSignatureNumerator, timeline.timeSignatureDenominator))
+        return fail(ProjectError::Code::Validation,
+                    "root.timeSignature: numerator in [1, 64] and denominator one of "
+                    "1, 2, 4, 8, 16, 32");
     for (std::size_t t = 0; t < timeline.tracks().size(); ++t) {
         const Track& track = timeline.tracks()[t];
         if (track.id.value == 0)
@@ -573,6 +663,10 @@ std::optional<ProjectError> validateForSave(const timeline::Timeline& timeline) 
             if (!std::isfinite(clip.gain) || clip.gain < 0.f)
                 return fail(ProjectError::Code::Validation,
                             clipPath(t, c) + ".gain: expected a finite non-negative number");
+            if (!timeline::validFadeCurve(clip.fadeInCurve) ||
+                !timeline::validFadeCurve(clip.fadeOutCurve))
+                return fail(ProjectError::Code::Validation,
+                            clipPath(t, c) + ".fadeInCurve: unknown fade curve");
         }
     }
     return std::nullopt;
@@ -586,6 +680,9 @@ json buildDocument(const timeline::Timeline& timeline, const ProjectMeta& meta,
     document["version"] = formatVersion;
     document["appVersion"] = meta.applicationVersion;
     document["sampleRate"] = timeline.sampleRate;
+    document["tempo"] = readableFloat(timeline.tempoBpm);
+    document["timeSignature"] =
+        json::array({timeline.timeSignatureNumerator, timeline.timeSignatureDenominator});
     document["nextTrackId"] = timeline.nextTrackId().value;
     document["nextClipId"] = timeline.nextClipId().value;
 
@@ -617,6 +714,9 @@ json buildDocument(const timeline::Timeline& timeline, const ProjectMeta& meta,
             clipObject["gain"] = readableFloat(clip.gain);
             clipObject["fadeIn"] = clip.fadeIn;
             clipObject["fadeOut"] = clip.fadeOut;
+            clipObject["muted"] = clip.muted;
+            clipObject["fadeInCurve"] = std::string(fadeCurveName(clip.fadeInCurve));
+            clipObject["fadeOutCurve"] = std::string(fadeCurveName(clip.fadeOutCurve));
             clips.push_back(std::move(clipObject));
         }
     }
@@ -625,8 +725,8 @@ json buildDocument(const timeline::Timeline& timeline, const ProjectMeta& meta,
 
     // Re-emit unknown top-level keys captured on load (never overwriting known ones).
     static const std::set<std::string, std::less<>> known = {
-        "format",      "version",    "appVersion", "sampleRate",
-        "nextTrackId", "nextClipId", "tracks",     "clips"};
+        "format",        "version",     "appVersion", "sampleRate", "tempo",
+        "timeSignature", "nextTrackId", "nextClipId", "tracks",     "clips"};
     for (const auto& [key, text] : meta.extensions) {
         if (known.contains(key))
             continue;

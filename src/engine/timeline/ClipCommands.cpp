@@ -11,7 +11,8 @@ Result AddClip::validate(const Timeline& timeline) const {
         return Error::IdExhausted;
     if (!validEnd(clip_.start, clip_.length) || !validEnd(clip_.sourceOffset, clip_.length) ||
         !validGain(clip_.gain) || clip_.fadeIn < 0 || clip_.fadeOut < 0 ||
-        clip_.fadeIn > clip_.length || clip_.fadeOut > clip_.length)
+        clip_.fadeIn > clip_.length || clip_.fadeOut > clip_.length ||
+        !validFadeCurve(clip_.fadeInCurve) || !validFadeCurve(clip_.fadeOutCurve))
         return Error::InvalidClip;
     return {};
 }
@@ -104,10 +105,12 @@ void SplitClip::apply(Timeline& timeline) {
     right.sourceOffset += leftLength;
     right.length -= leftLength;
     right.fadeIn = 0;
+    right.fadeInCurve = FadeCurve::EqualPower;
     right.fadeOut = std::min(right.fadeOut, right.length);
     left.length = leftLength;
     left.fadeIn = std::min(left.fadeIn, leftLength);
     left.fadeOut = 0;
+    left.fadeOutCurve = FadeCurve::EqualPower;
     insertClip(location.track, std::move(right));
     CommandAccess::invalidate(timeline, originalTrackId_);
 }
@@ -241,6 +244,92 @@ bool SetClipGain::mergeWith(const Command& command) {
     if (!other || clipId_ != other->clipId_)
         return false;
     newGain_ = other->newGain_;
+    return true;
+}
+Result SetClipMuted::validate(const Timeline& timeline) const {
+    return timeline.findClip(clipId_) ? Error::None : Error::UnknownClip;
+}
+void SetClipMuted::apply(Timeline& timeline) {
+    assert(validate(timeline));
+    auto& muted = findClip(timeline, clipId_).clip.muted;
+    if (!previousMuted_)
+        previousMuted_ = muted;
+    muted = newMuted_;
+}
+void SetClipMuted::revert(Timeline& timeline) {
+    assert(previousMuted_);
+    findClip(timeline, clipId_).clip.muted = *previousMuted_;
+}
+bool SetClipMuted::mergeWith(const Command& command) {
+    const auto* other = dynamic_cast<const SetClipMuted*>(&command);
+    if (!other || clipId_ != other->clipId_)
+        return false;
+    newMuted_ = other->newMuted_;
+    return true;
+}
+Result SetClipFades::validate(const Timeline& timeline) const {
+    const auto location = timeline.findClip(clipId_);
+    if (!location)
+        return Error::UnknownClip;
+    // fadeIn + fadeOut may exceed the clip length: the two ends are independent gain laws that
+    // multiply where they overlap, which is well defined for any clip length.
+    if (newFadeIn_ < 0 || newFadeOut_ < 0 || newFadeIn_ > location->clip->length ||
+        newFadeOut_ > location->clip->length || !validFadeCurve(newFadeInCurve_) ||
+        !validFadeCurve(newFadeOutCurve_))
+        return Error::InvalidFade;
+    return {};
+}
+void SetClipFades::apply(Timeline& timeline) {
+    assert(validate(timeline));
+    auto& clip = findClip(timeline, clipId_).clip;
+    if (!previousFades_)
+        previousFades_ = Fades{clip.fadeIn, clip.fadeOut, clip.fadeInCurve, clip.fadeOutCurve};
+    clip.fadeIn = newFadeIn_;
+    clip.fadeOut = newFadeOut_;
+    clip.fadeInCurve = newFadeInCurve_;
+    clip.fadeOutCurve = newFadeOutCurve_;
+}
+void SetClipFades::revert(Timeline& timeline) {
+    assert(previousFades_);
+    auto& clip = findClip(timeline, clipId_).clip;
+    clip.fadeIn = previousFades_->in;
+    clip.fadeOut = previousFades_->out;
+    clip.fadeInCurve = previousFades_->inCurve;
+    clip.fadeOutCurve = previousFades_->outCurve;
+}
+bool SetClipFades::mergeWith(const Command& command) {
+    const auto* other = dynamic_cast<const SetClipFades*>(&command);
+    if (!other || clipId_ != other->clipId_)
+        return false;
+    newFadeIn_ = other->newFadeIn_;
+    newFadeOut_ = other->newFadeOut_;
+    newFadeInCurve_ = other->newFadeInCurve_;
+    newFadeOutCurve_ = other->newFadeOutCurve_;
+    return true;
+}
+Result SlipClip::validate(const Timeline& timeline) const {
+    const auto location = timeline.findClip(clipId_);
+    if (!location)
+        return Error::UnknownClip;
+    return validEnd(newSourceOffset_, location->clip->length) ? Error::None
+                                                              : Error::InvalidSourceOffset;
+}
+void SlipClip::apply(Timeline& timeline) {
+    assert(validate(timeline));
+    auto& sourceOffset = findClip(timeline, clipId_).clip.sourceOffset;
+    if (!previousSourceOffset_)
+        previousSourceOffset_ = sourceOffset;
+    sourceOffset = newSourceOffset_;
+}
+void SlipClip::revert(Timeline& timeline) {
+    assert(previousSourceOffset_);
+    findClip(timeline, clipId_).clip.sourceOffset = *previousSourceOffset_;
+}
+bool SlipClip::mergeWith(const Command& command) {
+    const auto* other = dynamic_cast<const SlipClip*>(&command);
+    if (!other || clipId_ != other->clipId_)
+        return false;
+    newSourceOffset_ = other->newSourceOffset_;
     return true;
 }
 } // namespace wavy::timeline

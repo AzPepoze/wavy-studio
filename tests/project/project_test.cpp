@@ -93,13 +93,34 @@ nlohmann::ordered_json validDocument() {
 Timeline sampleTimeline(const fs::path& directory) {
     Timeline timeline;
     timeline.sampleRate = 48000;
+    timeline.tempoBpm = 128.5;
+    timeline.timeSignatureNumerator = 3;
+    timeline.timeSignatureDenominator = 4;
     AddTrack first("Drums");
     first.apply(timeline);
-    AddClip kick(first.trackId(), {{}, "generated:sine", 0, 0, 100, 0.5f, 5, 10});
+    AddClip kick(first.trackId(), {{},
+                                   "generated:sine",
+                                   0,
+                                   0,
+                                   100,
+                                   0.5f,
+                                   5,
+                                   10,
+                                   true,
+                                   FadeCurve::Linear,
+                                   FadeCurve::Exponential});
     kick.apply(timeline);
-    AddClip snare(
-        first.trackId(),
-        {{}, (directory / "audio" / "snare.wav").generic_string(), 200, 10, 50, 0.8f, 2, 3});
+    AddClip snare(first.trackId(), {{},
+                                    (directory / "audio" / "snare.wav").generic_string(),
+                                    200,
+                                    10,
+                                    50,
+                                    0.8f,
+                                    2,
+                                    3,
+                                    false,
+                                    FadeCurve::Exponential,
+                                    FadeCurve::Linear});
     snare.apply(timeline);
     AddTrack second("Bass");
     second.apply(timeline);
@@ -125,10 +146,22 @@ TEST_CASE("round trip preserves data, ids and counters") {
     CHECK(loaded->timeline.nextTrackId() == source.nextTrackId());
     CHECK(loaded->timeline.nextClipId() == source.nextClipId());
     CHECK(loaded->meta.applicationVersion == "0.1.0");
+    CHECK(loaded->timeline.tempoBpm == 128.5);
+    CHECK(loaded->timeline.timeSignatureNumerator == 3u);
+    CHECK(loaded->timeline.timeSignatureDenominator == 4u);
+    const auto& kick = loaded->timeline.tracks()[0].clips[0];
+    CHECK(kick.muted);
+    CHECK(kick.fadeInCurve == FadeCurve::Linear);
+    CHECK(kick.fadeOutCurve == FadeCurve::Exponential);
 
     const auto text = readText(file);
     CHECK(text.find("\"format\": \"wavy-studio-project\"") != std::string::npos);
     CHECK(text.find("\"version\": 1") != std::string::npos);
+    CHECK(text.find("\"tempo\": 128.5") != std::string::npos);
+    CHECK(text.find("\"timeSignature\"") != std::string::npos);
+    CHECK(text.find("\"muted\": true") != std::string::npos);
+    CHECK(text.find("\"fadeInCurve\": \"linear\"") != std::string::npos);
+    CHECK(text.find("\"fadeOutCurve\": \"exponential\"") != std::string::npos);
 
     // Floats are written as their shortest decimal, not as 0.800000011920929, and read back
     // exactly.
@@ -302,6 +335,42 @@ TEST_CASE("every load validation rule reports its JSON path") {
     expect(document, "fadeOut");
 
     document = validDocument();
+    document["tempo"] = 5.0;
+    expect(document, "tempo");
+
+    document = validDocument();
+    document["tempo"] = 1000.0;
+    expect(document, "tempo");
+
+    document = validDocument();
+    document["tempo"] = "fast";
+    expect(document, "tempo");
+
+    document = validDocument();
+    document["timeSignature"] = nlohmann::ordered_json::array({4});
+    expect(document, "timeSignature");
+
+    document = validDocument();
+    document["timeSignature"] = nlohmann::ordered_json::array({0, 4});
+    expect(document, "timeSignature");
+
+    document = validDocument();
+    document["timeSignature"] = nlohmann::ordered_json::array({4, 3});
+    expect(document, "timeSignature");
+
+    document = validDocument();
+    document["tracks"][0]["clips"][0]["muted"] = "yes";
+    expect(document, "muted");
+
+    document = validDocument();
+    document["tracks"][0]["clips"][0]["fadeInCurve"] = "sigmoid";
+    expect(document, "fadeInCurve");
+
+    document = validDocument();
+    document["tracks"][0]["clips"][0]["fadeOutCurve"] = 3;
+    expect(document, "fadeOutCurve");
+
+    document = validDocument();
     document["tracks"][0]["clips"][0]["gain"] = 1e39; // finite double, overflows float
     expect(document, "gain");
 
@@ -374,6 +443,54 @@ TEST_CASE("a flat clips array with a known track reference loads") {
     REQUIRE(loaded->timeline.tracks().size() == 1);
     REQUIRE(loaded->timeline.tracks()[0].clips.size() == 1);
     CHECK(loaded->timeline.tracks()[0].clips[0].id == ClipId{1});
+}
+
+TEST_CASE("a version-1 file without the new keys loads with defaults") {
+    TempDirectory temp;
+    const fs::path path = temp.path / "minimal.wavy";
+    const std::string minimal = R"({
+  "format": "wavy-studio-project",
+  "version": 1,
+  "appVersion": "0.1.0",
+  "sampleRate": 44100,
+  "nextTrackId": 2,
+  "nextClipId": 2,
+  "tracks": [
+    {
+      "id": 1,
+      "name": "A",
+      "gain": 1,
+      "muted": false,
+      "solo": false,
+      "extensions": {}
+    }
+  ],
+  "clips": [
+    {
+      "id": 1,
+      "track": 1,
+      "source": "generated:sine",
+      "start": 0,
+      "sourceOffset": 0,
+      "length": 100,
+      "gain": 0.5,
+      "fadeIn": 0,
+      "fadeOut": 0
+    }
+  ]
+})";
+
+    const auto loaded = loadText(path, minimal);
+    REQUIRE(loaded);
+    CHECK(loaded->timeline.tempoBpm == 120.0);
+    CHECK(loaded->timeline.timeSignatureNumerator == 4u);
+    CHECK(loaded->timeline.timeSignatureDenominator == 4u);
+    REQUIRE(loaded->timeline.tracks().size() == 1);
+    REQUIRE(loaded->timeline.tracks()[0].clips.size() == 1);
+    const auto& clip = loaded->timeline.tracks()[0].clips[0];
+    CHECK_FALSE(clip.muted);
+    CHECK(clip.fadeInCurve == FadeCurve::EqualPower);
+    CHECK(clip.fadeOutCurve == FadeCurve::EqualPower);
 }
 
 TEST_CASE("a failed save leaves the previous project intact and no temp file") {
@@ -511,6 +628,10 @@ TEST_CASE("seeded random timelines round trip") {
     std::mt19937 rng(20261006);
     for (int iteration = 0; iteration < 8; ++iteration) {
         Timeline timeline;
+        timeline.tempoBpm = 20.0 + (rng() % 980);
+        timeline.timeSignatureNumerator = 1 + rng() % 64;
+        static const unsigned denominators[] = {1, 2, 4, 8, 16, 32};
+        timeline.timeSignatureDenominator = denominators[rng() % 6];
         const int trackCount = 1 + rng() % 6;
         for (int t = 0; t < trackCount; ++t) {
             AddTrack track("t" + std::to_string(t));
@@ -532,7 +653,10 @@ TEST_CASE("seeded random timelines round trip") {
                                                length,
                                                float(rng() % 101) / 100.f,
                                                static_cast<Frames>(rng() % (length + 1)),
-                                               static_cast<Frames>(rng() % (length + 1))});
+                                               static_cast<Frames>(rng() % (length + 1)),
+                                               rng() % 2 != 0,
+                                               static_cast<FadeCurve>(rng() % 3),
+                                               static_cast<FadeCurve>(rng() % 3)});
                 if (clip.validate(timeline))
                     clip.apply(timeline);
                 cursor += length + rng() % 100;

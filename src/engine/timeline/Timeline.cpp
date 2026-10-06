@@ -73,9 +73,17 @@ void Timeline::Restorer::setCounters(TrackId nextTrack, ClipId nextClip) {
     nextTrack_ = nextTrack;
     nextClip_ = nextClip;
 }
+void Timeline::Restorer::setTempo(double bpm) { tempoBpm_ = bpm; }
+void Timeline::Restorer::setTimeSignature(unsigned numerator, unsigned denominator) {
+    timeSignatureNumerator_ = numerator;
+    timeSignatureDenominator_ = denominator;
+}
 Timeline Timeline::Restorer::build() {
     Timeline timeline;
     timeline.sampleRate = sampleRate_;
+    timeline.tempoBpm = tempoBpm_;
+    timeline.timeSignatureNumerator = timeSignatureNumerator_;
+    timeline.timeSignatureDenominator = timeSignatureDenominator_;
     timeline.tracks_ = std::move(tracks_);
     timeline.nextTrack_ = nextTrack_;
     timeline.nextClip_ = nextClip_;

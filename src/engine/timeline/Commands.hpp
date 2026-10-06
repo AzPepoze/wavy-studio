@@ -2,6 +2,7 @@
 #include "timeline/Timeline.hpp"
 #include <memory>
 #include <string_view>
+#include <utility>
 
 namespace wavy::timeline {
 enum class Error {
@@ -11,6 +12,10 @@ enum class Error {
     InvalidPosition,
     InvalidClip,
     InvalidGain,
+    InvalidFade,
+    InvalidSourceOffset,
+    InvalidTempo,
+    InvalidTimeSignature,
     IdExhausted
 };
 class Result {
@@ -206,6 +211,69 @@ class SetClipGain final : public Command {
     float newGain_;
     std::optional<float> previousGain_;
 };
+class SetClipMuted final : public Command {
+  public:
+    std::unique_ptr<Command> clone() const override {
+        return std::make_unique<SetClipMuted>(*this);
+    }
+    explicit SetClipMuted(ClipId id, bool muted) : clipId_(id), newMuted_(muted) {}
+    Result validate(const Timeline&) const override;
+    void apply(Timeline&) override;
+    void revert(Timeline&) override;
+    std::string_view name() const override { return "SetClipMuted"; }
+    bool mergeWith(const Command&) override;
+
+  private:
+    ClipId clipId_;
+    bool newMuted_;
+    std::optional<bool> previousMuted_;
+};
+class SetClipFades final : public Command {
+  public:
+    SetClipFades(ClipId id, Frames fadeIn, Frames fadeOut, FadeCurve fadeInCurve,
+                 FadeCurve fadeOutCurve)
+        : clipId_(id), newFadeIn_(fadeIn), newFadeOut_(fadeOut), newFadeInCurve_(fadeInCurve),
+          newFadeOutCurve_(fadeOutCurve) {}
+    std::unique_ptr<Command> clone() const override {
+        return std::make_unique<SetClipFades>(*this);
+    }
+    Result validate(const Timeline&) const override;
+    void apply(Timeline&) override;
+    void revert(Timeline&) override;
+    std::string_view name() const override { return "SetClipFades"; }
+    bool mergeWith(const Command&) override;
+
+  private:
+    struct Fades {
+        Frames in = 0;
+        Frames out = 0;
+        FadeCurve inCurve = FadeCurve::EqualPower;
+        FadeCurve outCurve = FadeCurve::EqualPower;
+    };
+    ClipId clipId_;
+    Frames newFadeIn_;
+    Frames newFadeOut_;
+    FadeCurve newFadeInCurve_;
+    FadeCurve newFadeOutCurve_;
+    std::optional<Fades> previousFades_;
+};
+// Slip editing shifts the audio inside a clip without moving or resizing the clip itself.
+class SlipClip final : public Command {
+  public:
+    std::unique_ptr<Command> clone() const override { return std::make_unique<SlipClip>(*this); }
+    explicit SlipClip(ClipId id, Frames sourceOffset)
+        : clipId_(id), newSourceOffset_(sourceOffset) {}
+    Result validate(const Timeline&) const override;
+    void apply(Timeline&) override;
+    void revert(Timeline&) override;
+    std::string_view name() const override { return "SlipClip"; }
+    bool mergeWith(const Command&) override;
+
+  private:
+    ClipId clipId_;
+    Frames newSourceOffset_;
+    std::optional<Frames> previousSourceOffset_;
+};
 class SetTrackGain final : public Command {
   public:
     std::unique_ptr<Command> clone() const override {
@@ -256,5 +324,36 @@ class SetTrackSolo final : public Command {
     TrackId trackId_;
     bool newSolo_;
     std::optional<bool> previousSolo_;
+};
+class SetTempo final : public Command {
+  public:
+    std::unique_ptr<Command> clone() const override { return std::make_unique<SetTempo>(*this); }
+    explicit SetTempo(double bpm) : newBpm_(bpm) {}
+    Result validate(const Timeline&) const override;
+    void apply(Timeline&) override;
+    void revert(Timeline&) override;
+    std::string_view name() const override { return "SetTempo"; }
+    bool mergeWith(const Command&) override;
+
+  private:
+    double newBpm_;
+    std::optional<double> previousBpm_;
+};
+class SetTimeSignature final : public Command {
+  public:
+    std::unique_ptr<Command> clone() const override {
+        return std::make_unique<SetTimeSignature>(*this);
+    }
+    SetTimeSignature(unsigned numerator, unsigned denominator)
+        : newNumerator_(numerator), newDenominator_(denominator) {}
+    Result validate(const Timeline&) const override;
+    void apply(Timeline&) override;
+    void revert(Timeline&) override;
+    std::string_view name() const override { return "SetTimeSignature"; }
+
+  private:
+    unsigned newNumerator_;
+    unsigned newDenominator_;
+    std::optional<std::pair<unsigned, unsigned>> previousSignature_;
 };
 } // namespace wavy::timeline

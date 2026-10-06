@@ -10,6 +10,7 @@ Qt-free C++ engine, built as the `wavy_engine` static library.
 - `timeline/`: timeline data model, edit commands and undo history.
 - `timeline/CompoundCommand.hpp/.cpp`: ordered edits validated on a scratch timeline with cloned commands.
 - `timeline/ClipCommands.cpp`: clip edits, including composite `EditClip` move and trim.
+- `timeline/TimelineCommands.cpp`: tempo and time-signature edits.
 - `record/`: device-free audio capture and durable WAV streaming.
 - `record/RingBuffer.hpp`: preallocated SPSC sample queue and overflow accounting.
 - `record/WavWriter.hpp`: streaming float WAV writer API.

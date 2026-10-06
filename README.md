@@ -99,6 +99,7 @@ and `NO_COLOR`. Logging is not suitable for the audio callback.
 - `src/engine/timeline/`: timeline data model, edit commands and undo history.
 - `src/engine/timeline/CompoundCommand.hpp/.cpp`: ordered edits validated on a scratch timeline with cloned commands.
 - `src/engine/timeline/ClipCommands.cpp`: clip edits, including composite `EditClip` move and trim.
+- `src/engine/timeline/TimelineCommands.cpp`: tempo and time-signature edits.
 - `src/engine/effects/`: Qt-free gain/pan, four-band RBJ EQ, linked peak/RMS compressor, Freeverb reverb, tempo-synced stereo delay, mid/side stereo width, look-ahead limiter and split/wide-band de-esser.
 - `tests/effects/`: device-free effects test suite.
 - `tests/effects/effects_test.cpp`: DSP response, timing, live parameters, allocation and 64-track benchmarks.

@@ -28,6 +28,21 @@ inline bool validEnd(Frames start, Frames length) {
     return start >= 0 && length > 0 && start <= std::numeric_limits<Frames>::max() - length;
 }
 inline bool validGain(float gain) { return std::isfinite(gain) && gain >= 0; }
+inline bool validTempo(double bpm) { return std::isfinite(bpm) && bpm >= 20.0 && bpm <= 999.0; }
+inline bool validTimeSignature(unsigned numerator, unsigned denominator) {
+    if (numerator < 1 || numerator > 64)
+        return false;
+    switch (denominator) {
+    case 1:
+    case 2:
+    case 4:
+    case 8:
+    case 16:
+    case 32:
+        return true;
+    }
+    return false;
+}
 inline bool clipLess(const Clip& a, const Clip& b) {
     return a.start == b.start ? a.id < b.id : a.start < b.start;
 }
