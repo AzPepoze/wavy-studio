@@ -28,10 +28,21 @@ void GainPan::process(float* stereo, std::size_t frames) noexcept {
     const auto g = gains();
     for (unsigned i = 0; i < 2; ++i)
         smooth_[i].target(g[i]);
-    for (std::size_t i = 0; i < frames; ++i)
-        for (unsigned c = 0; c < 2; ++c)
-            stereo[i * 2 + c] = static_cast<float>(std::clamp(
-                stereo[i * 2 + c] * smooth_[c].next(), -double(std::numeric_limits<float>::max()),
-                double(std::numeric_limits<float>::max())));
+    constexpr double limit = std::numeric_limits<float>::max();
+    if (smooth_[0].settled() && smooth_[1].settled()) {
+        for (std::size_t i = 0; i < frames; ++i) {
+            stereo[i * 2] = static_cast<float>(std::clamp(stereo[i * 2] * g[0], -limit, limit));
+            stereo[i * 2 + 1] =
+                static_cast<float>(std::clamp(stereo[i * 2 + 1] * g[1], -limit, limit));
+        }
+    } else {
+        for (std::size_t i = 0; i < frames; ++i)
+            for (unsigned c = 0; c < 2; ++c)
+                stereo[i * 2 + c] = static_cast<float>(
+                    std::clamp(stereo[i * 2 + c] * smooth_[c].next(), -limit, limit));
+    }
+    for (std::size_t i = 0; i < frames * 2; ++i)
+        if (!std::isfinite(stereo[i]))
+            stereo[i] = 0;
 }
 } // namespace wavy::effects

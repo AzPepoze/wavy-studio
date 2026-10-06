@@ -82,29 +82,58 @@ void ParametricEq::process(float* stereo, std::size_t frames) noexcept {
         // stable.
         for (std::size_t i = 0; i < target.size(); ++i)
             band.coefficients[i].target(target[i]);
-        if (target == Coefficients{1, 0, 0, 0, 0} &&
-            std::all_of(band.coefficients.begin(), band.coefficients.end(),
-                        [](const auto& c) { return c.settled(); }) &&
+        const bool settled = std::all_of(band.coefficients.begin(), band.coefficients.end(),
+                                         [](const auto& c) { return c.settled(); });
+        if (target == Coefficients{1, 0, 0, 0, 0} && settled &&
             band.state == std::array<std::array<double, 2>, 2>{})
             continue;
-        for (std::size_t frame = 0; frame < frames; ++frame) {
-            Coefficients c;
-            for (std::size_t i = 0; i < c.size(); ++i)
-                c[i] = band.coefficients[i].next();
+        auto process = [&](const Coefficients& c, std::size_t frame) {
             for (unsigned channel = 0; channel < 2; ++channel) {
                 auto& state = band.state[channel];
                 const double x = stereo[frame * 2 + channel];
                 const double y = c[0] * x + state[0];
                 state[0] = c[1] * x - c[3] * y + state[1];
                 state[1] = c[2] * x - c[4] * y;
-                for (auto& z : state)
-                    if (std::abs(z) < 1e-30)
-                        z = 0;
-                stereo[frame * 2 + channel] =
-                    static_cast<float>(std::clamp(y, -double(std::numeric_limits<float>::max()),
-                                                  double(std::numeric_limits<float>::max())));
+                stereo[frame * 2 + channel] = static_cast<float>(y);
+            }
+        };
+        if (settled) {
+            const auto [b0, b1, b2, a1, a2] = target;
+            auto [l1, l2] = band.state[0];
+            auto [r1, r2] = band.state[1];
+            for (std::size_t frame = 0; frame < frames; ++frame) {
+                const double l = stereo[frame * 2], r = stereo[frame * 2 + 1];
+                const double left = b0 * l + l1, right = b0 * r + r1;
+                l1 = b1 * l - a1 * left + l2;
+                l2 = b2 * l - a2 * left;
+                r1 = b1 * r - a1 * right + r2;
+                r2 = b2 * r - a2 * right;
+                stereo[frame * 2] = static_cast<float>(left);
+                stereo[frame * 2 + 1] = static_cast<float>(right);
+            }
+            band.state = {{{l1, l2}, {r1, r2}}};
+        } else {
+            for (std::size_t frame = 0; frame < frames; ++frame) {
+                Coefficients c;
+                for (std::size_t i = 0; i < c.size(); ++i)
+                    c[i] = band.coefficients[i].next();
+                process(c, frame);
             }
         }
+        // 1e-30 is inaudible and far above double subnormals; slow state decay permits a block
+        // check.
+        for (auto& state : band.state)
+            for (auto& z : state)
+                if (std::abs(z) < 1e-30)
+                    z = 0;
+    }
+    bool finite = true;
+    for (std::size_t i = 0; i < frames * 2; ++i)
+        finite &= std::isfinite(stereo[i]);
+    if (!finite) {
+        for (auto& band : bands_)
+            band.state = {};
+        std::fill_n(stereo, frames * 2, 0.f);
     }
 }
 } // namespace wavy::effects

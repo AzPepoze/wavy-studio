@@ -1,5 +1,6 @@
 #include "audio/Mixer.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -34,26 +35,49 @@ void Mixer::mix(float* out, std::size_t frames, std::int64_t position) noexcept 
                 continue;
             const auto playable = std::min(clip.length, clip.source->frames() - clip.sourceOffset);
             const auto finish = std::min(end, clip.start + playable);
-            for (auto frame = begin; frame < finish; ++frame) {
-                const auto local = frame - clip.start;
-                double gain = static_cast<double>(track.gain) * clip.gain;
-                if (clip.fadeIn)
-                    gain *= std::min(1.0, static_cast<double>(local) / clip.fadeIn);
-                if (clip.fadeOut)
-                    gain *=
-                        std::min(1.0, static_cast<double>(clip.length - 1 - local) / clip.fadeOut);
-                const auto index =
-                    static_cast<std::size_t>(clip.sourceOffset + local) * clip.source->channels;
-                const auto dest = static_cast<std::size_t>(frame - position) * 2;
-                for (unsigned channel = 0; channel < 2; ++channel) {
-                    const double value =
-                        destination[dest + channel] +
-                        gain * clip.source
-                                   ->samples[index + (clip.source->channels == 1 ? 0 : channel)];
-                    if (std::isfinite(value))
-                        destination[dest + channel] = static_cast<float>(std::clamp(
-                            value, -static_cast<double>(std::numeric_limits<float>::max()),
-                            static_cast<double>(std::numeric_limits<float>::max())));
+            if (begin >= finish)
+                continue;
+            const double gain = static_cast<double>(track.gain) * clip.gain;
+            const auto fadeInEnd =
+                clip.start + std::clamp(clip.fadeIn, begin - clip.start, finish - clip.start);
+            const auto fadeOutBegin =
+                clip.start +
+                std::clamp(clip.length - 1 - clip.fadeOut, begin - clip.start, finish - clip.start);
+            std::array boundaries{begin, std::min(fadeInEnd, fadeOutBegin),
+                                  std::max(fadeInEnd, fadeOutBegin), finish};
+            for (std::size_t region = 0; region < 3; ++region) {
+                const auto first = boundaries[region], last = boundaries[region + 1];
+                const auto local = first - clip.start;
+                const bool fadeIn = clip.fadeIn && local < clip.fadeIn;
+                const bool fadeOut = clip.fadeOut && local >= clip.length - 1 - clip.fadeOut;
+                const auto* source = clip.source->samples.data() +
+                                     (clip.sourceOffset + local) * clip.source->channels;
+                auto* dest = destination + (first - position) * 2;
+                const auto count = last - first;
+                if (!fadeIn && !fadeOut) {
+                    const float steady = static_cast<float>(gain);
+                    if (clip.source->channels == 1) {
+                        for (std::int64_t i = 0; i < count; ++i) {
+                            dest[i * 2] += source[i] * steady;
+                            dest[i * 2 + 1] += source[i] * steady;
+                        }
+                    } else {
+                        for (std::int64_t i = 0; i < count * 2; ++i)
+                            dest[i] += source[i] * steady;
+                    }
+                } else {
+                    for (std::int64_t i = 0; i < count; ++i) {
+                        double ramp = gain;
+                        if (fadeIn)
+                            ramp *= static_cast<double>(local + i) / clip.fadeIn;
+                        if (fadeOut)
+                            ramp *= static_cast<double>(clip.length - 1 - local - i) / clip.fadeOut;
+                        const auto index = i * clip.source->channels;
+                        dest[i * 2] = static_cast<float>(dest[i * 2] + ramp * source[index]);
+                        dest[i * 2 + 1] = static_cast<float>(
+                            dest[i * 2 + 1] +
+                            ramp * source[index + (clip.source->channels == 1 ? 0 : 1)]);
+                    }
                 }
             }
         }
@@ -61,18 +85,16 @@ void Mixer::mix(float* out, std::size_t frames, std::int64_t position) noexcept 
             for (auto& slot : track.effects)
                 if (!slot.bypassed)
                     slot.effect->process(destination, frames);
-            for (std::size_t i = 0; i < frames * 2; ++i) {
-                const double value = double(out[i]) + destination[i];
-                if (std::isfinite(value))
-                    out[i] = static_cast<float>(
-                        std::clamp(value, -double(std::numeric_limits<float>::max()),
-                                   double(std::numeric_limits<float>::max())));
-            }
+            for (std::size_t i = 0; i < frames * 2; ++i)
+                out[i] += destination[i];
         }
     }
     for (auto& slot : current_->masterEffects)
         if (!slot.bypassed)
             slot.effect->process(out, frames);
+    for (std::size_t i = 0; i < frames * 2; ++i)
+        if (!std::isfinite(out[i]))
+            out[i] = 0;
 }
 void Mixer::render(float* out, std::size_t frames) noexcept {
     if (!retired_.load(std::memory_order_acquire)) {

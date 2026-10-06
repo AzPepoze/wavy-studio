@@ -1,4 +1,5 @@
 #include "effects/Compressor.hpp"
+#include <numbers>
 #include <stdexcept>
 namespace wavy::effects {
 Compressor::Compressor(std::shared_ptr<ParameterSet> params)
@@ -42,26 +43,33 @@ void Compressor::process(float* stereo, std::size_t frames) noexcept {
     makeup_.target(
         std::pow(10., (params_->get(5) + (params_->get(6) >= .5f ? -threshold * slope : 0)) / 20));
     mix_.target(params_->get(8));
+    const double kneeHalf = knee / 2, kneeScale = knee > 0 ? slope / (2 * knee) : 0;
+    const double kneeStart = std::pow(10., (threshold - kneeHalf) / (rms ? 10 : 20));
+    const bool settled = makeup_.settled() && mix_.settled();
+    const double makeup = settled ? makeup_.next() : 0, blend = settled ? mix_.next() : 0;
     double reduction = 0;
     for (std::size_t i = 0; i < frames; ++i) {
-        const double l = stereo[i * 2], r = stereo[i * 2 + 1];
+        const double l = std::isfinite(stereo[i * 2]) ? stereo[i * 2] : 0,
+                     r = std::isfinite(stereo[i * 2 + 1]) ? stereo[i * 2 + 1] : 0;
         const double detector = rms ? (l * l + r * r) * .5 : std::max(std::abs(l), std::abs(r));
         const double coefficient = detector > envelope_ ? attack : release;
         envelope_ = detector + coefficient * (envelope_ - detector);
         if (envelope_ < 1e-30)
             envelope_ = 0;
-        const double level = (rms ? 10 : 20) * std::log10(std::max(envelope_, 1e-30));
-        const double over = level - threshold;
-        reduction = over > knee / 2
-                        ? slope * over
-                        : (knee > 0 && over > -knee / 2
-                               ? slope * (over + knee / 2) * (over + knee / 2) / (2 * knee)
-                               : 0);
-        const double wet = std::pow(10., -reduction / 20) * makeup_.next();
-        const double mix = mix_.next(), gain = 1 + mix * (wet - 1);
+        reduction = 0;
+        double attenuation = 1;
+        if (envelope_ > kneeStart) {
+            const double level = (rms ? 10 : 20) * std::log10(std::max(envelope_, 1e-30));
+            const double over = level - threshold;
+            reduction =
+                over > kneeHalf ? slope * over : kneeScale * (over + kneeHalf) * (over + kneeHalf);
+            attenuation = std::exp(-reduction * (std::numbers::ln10 / 20));
+        }
+        const double wet = attenuation * (settled ? makeup : makeup_.next());
+        const double mix = settled ? blend : mix_.next(), gain = 1 + mix * (wet - 1);
         for (unsigned c = 0; c < 2; ++c)
             stereo[i * 2 + c] = static_cast<float>(
-                std::clamp(stereo[i * 2 + c] * gain, -double(std::numeric_limits<float>::max()),
+                std::clamp((c == 0 ? l : r) * gain, -double(std::numeric_limits<float>::max()),
                            double(std::numeric_limits<float>::max())));
     }
     reductionDb_.store(static_cast<float>(reduction), std::memory_order_relaxed);
