@@ -1,4 +1,5 @@
 #pragma once
+#include "audio/Mixer.hpp"
 #include <memory>
 #include <string>
 #include <vector>
@@ -17,6 +18,9 @@ class AudioEngine {
     unsigned int sampleRate() const;
     bool isRunning() const;
     static std::vector<std::string> availableApis();
+    Mixer& mixer();
+    // Requires no active device callback; Mixer has a single render consumer.
+    void renderOffline(float* out, std::size_t frames);
 
   private:
     struct Impl;

@@ -134,6 +134,14 @@ target("timeline_model_tests")
     add_includedirs("src/app")
     add_tests("timeline_model")
 
+target("mixer_tests")
+    set_kind("binary")
+    add_deps("wavy_engine")
+    add_rules("rtaudio_rpath")
+    add_packages("doctest", "rtaudio")
+    add_files("tests/audio/mixer_test.cpp")
+    add_tests("mixer")
+
 task("fmt")
     set_menu {
         usage = "xmake fmt",

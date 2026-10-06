@@ -2,20 +2,20 @@
 #include "core/Log.hpp"
 #include <atomic>
 #include <cstddef>
-#include <cstring>
 #include <rtaudio/RtAudio.h>
 
 namespace wavy {
 struct AudioEngine::Impl {
     DeviceMode mode;
+    Mixer mixer;
     std::atomic<bool> deviceFailed{false};
     std::unique_ptr<RtAudio> device;
     unsigned int rate = 48000;
     bool running = false;
     explicit Impl(DeviceMode value) : mode(value) {}
     static int render(void* output, void*, unsigned int frames, double, RtAudioStreamStatus,
-                      void*) noexcept {
-        std::memset(output, 0, static_cast<std::size_t>(frames) * 2 * sizeof(float));
+                      void* state) noexcept {
+        static_cast<Impl*>(state)->mixer.render(static_cast<float*>(output), frames);
         return 0;
     }
 };
@@ -27,10 +27,7 @@ bool AudioEngine::start() {
     impl_->deviceFailed.store(false, std::memory_order_relaxed);
     if (impl_->mode == DeviceMode::Default) {
         impl_->device = std::make_unique<RtAudio>(
-            RtAudio::UNSPECIFIED,
-            [state = impl_.get()](RtAudioErrorType type, const std::string& message) {
-                log::write(type == RTAUDIO_WARNING ? log::Level::Warn : log::Level::Error,
-                           "rtaudio", message);
+            RtAudio::UNSPECIFIED, [state = impl_.get()](RtAudioErrorType type, const std::string&) {
                 if (type != RTAUDIO_WARNING && type != RTAUDIO_NO_ERROR)
                     state->deviceFailed.store(true, std::memory_order_relaxed);
             });
@@ -42,8 +39,8 @@ bool AudioEngine::start() {
             output.nChannels = 2;
             output.firstChannel = 0;
             unsigned int frames = 256;
-            if (device.openStream(&output, nullptr, RTAUDIO_FLOAT32, 48000, &frames,
-                                  Impl::render) == RTAUDIO_NO_ERROR &&
+            if (device.openStream(&output, nullptr, RTAUDIO_FLOAT32, 48000, &frames, Impl::render,
+                                  impl_.get()) == RTAUDIO_NO_ERROR &&
                 device.startStream() == RTAUDIO_NO_ERROR &&
                 !impl_->deviceFailed.load(std::memory_order_relaxed)) {
                 impl_->rate = device.getStreamSampleRate();
@@ -75,6 +72,10 @@ unsigned int AudioEngine::sampleRate() const {
     return impl_->deviceFailed.load(std::memory_order_relaxed) ? 48000 : impl_->rate;
 }
 bool AudioEngine::isRunning() const { return impl_->running; }
+Mixer& AudioEngine::mixer() { return impl_->mixer; }
+void AudioEngine::renderOffline(float* out, std::size_t frames) {
+    impl_->mixer.render(out, frames);
+}
 std::vector<std::string> AudioEngine::availableApis() {
     std::vector<RtAudio::Api> apis;
     RtAudio::getCompiledApi(apis);
