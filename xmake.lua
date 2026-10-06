@@ -156,6 +156,8 @@ target("ui_tests")
         end
         local runner = find_tool("qmltestrunner", {paths = paths, norun = true, force = true})
         if not runner then
+            -- CI sets WAVY_REQUIRE_UI_TESTS so a missing runner fails instead of silently skipping the tests.
+            assert(not os.getenv("WAVY_REQUIRE_UI_TESTS"), "qmltestrunner not found but UI tests are required")
             print("Skipping UI tests: qmltestrunner not found; install Qt's test tools or add the Qt bin directory to PATH")
             return true
         end
