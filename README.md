@@ -79,9 +79,9 @@ and `NO_COLOR`. Logging is not suitable for the audio callback.
 
 ## Layout
 
-- `src/engine/Mixer.hpp`: snapshots, atomic transport and mixer API.
-- `src/engine/Mixer.cpp`: source preparation and real-time stereo rendering.
-- `tests/mixer_test.cpp`: mixer accuracy, allocation, concurrency and performance tests.
+- `src/engine/audio/Mixer.hpp`: snapshots, atomic transport and mixer API.
+- `src/engine/audio/Mixer.cpp`: source preparation and real-time stereo rendering.
+- `tests/audio/mixer_test.cpp`: mixer accuracy, allocation, concurrency and performance tests.
 
 - `xmake.lua`: static engine, Qt Quick application and doctest target.
 - `src/engine/core/`: logging.
