@@ -147,7 +147,7 @@ TEST_CASE("Parameters clamp, resolve ids and serialize shared values") {
     CHECK(p.get("gain") == 24);
     auto effect = factory.create(slot.typeId, slot.params);
     CHECK(&effect->parameters() == slot.params.get());
-    CHECK(factory.entries().size() == 3);
+    CHECK(factory.entries().size() >= 3);
     std::atomic<bool> done{false};
     std::thread writer([&] {
         for (int i = 0; i < 100000; ++i)

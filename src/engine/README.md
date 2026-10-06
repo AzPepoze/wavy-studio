@@ -35,6 +35,12 @@ subsystems get their own folder.
 - `effects/ParametricEq.cpp`: RBJ shelves/peaks, coefficient ramps and denormal suppression.
 - `effects/Compressor.hpp`: linked peak/RMS compressor with atomic reduction meter.
 - `effects/Compressor.cpp`: soft knee, envelope time constants and parallel/auto makeup gains.
+- `effects/Reverb.hpp`: Freeverb-style vocal reverb interface.
+- `effects/Reverb.cpp`: scaled comb/allpass lengths, RT60-derived feedback, pre-delay and wet cuts.
+- `effects/Delay.hpp`: interpolated stereo delay with tempo sync, ping-pong and modulation.
+- `effects/Delay.cpp`: rate-limited time glide, feedback filters and wet/dry mix.
+- `effects/StereoWidth.hpp`: mid/side stereo width interface with trims and bass mono.
+- `effects/StereoWidth.cpp`: smoothed width, mid/side gains and one-pole low-band mono fold.
 
 `EffectFactory::slot()` creates the parameter owner. Keep slots in an `EffectChains`
 configuration keyed by `timeline::TrackId`, with a separate master vector, and pass

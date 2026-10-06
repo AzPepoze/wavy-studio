@@ -1,7 +1,10 @@
 #include "effects/Effect.hpp"
 #include "effects/Compressor.hpp"
+#include "effects/Delay.hpp"
 #include "effects/GainPan.hpp"
 #include "effects/ParametricEq.hpp"
+#include "effects/Reverb.hpp"
+#include "effects/StereoWidth.hpp"
 #include <stdexcept>
 
 namespace wavy::effects {
@@ -40,6 +43,10 @@ EffectFactory::EffectFactory() {
                  [](auto p) { return std::make_unique<ParametricEq>(p); });
     registerType("compressor", "Compressor",
                  [](auto p) { return std::make_unique<Compressor>(p); });
+    registerType("reverb", "Reverb", [](auto p) { return std::make_unique<Reverb>(p); });
+    registerType("delay", "Delay", [](auto p) { return std::make_unique<Delay>(p); });
+    registerType("stereo_width", "Stereo Width",
+                 [](auto p) { return std::make_unique<StereoWidth>(p); });
 }
 void EffectFactory::registerType(std::string id, std::string displayName, Create create) {
     for (auto& entry : entries_)
