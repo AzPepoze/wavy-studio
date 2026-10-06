@@ -157,6 +157,161 @@ void checkNonFiniteInput(Effect& effect) {
     for (float v : block)
         REQUIRE(std::isfinite(v));
 }
+constexpr double maxFloat = double(std::numeric_limits<float>::max());
+// The pre-optimization limiter, kept verbatim as a reference for the fast path.
+struct LimiterReference {
+    std::array<std::vector<double>, 2> delay;
+    std::vector<double> windowValue;
+    std::vector<std::uint64_t> windowIndex;
+    std::size_t lookahead = 1, write = 0, head = 0, count = 0;
+    double rate = 48000, envelope = 1, reduction = 0;
+    std::uint64_t position = 0;
+    void prepare(double sampleRate) {
+        rate = sampleRate;
+        lookahead = std::max<std::size_t>(1, static_cast<std::size_t>(std::lround(rate * .0015)));
+        for (auto& channel : delay)
+            channel.assign(lookahead, 0);
+        windowValue.assign(lookahead + 1, 1);
+        windowIndex.assign(lookahead + 1, 0);
+        reset();
+    }
+    void reset() {
+        for (auto& channel : delay)
+            std::fill(channel.begin(), channel.end(), 0);
+        write = head = count = 0;
+        position = 0;
+        envelope = 1;
+        reduction = 0;
+    }
+    void process(const ParameterSet& p, float* stereo, std::size_t frames) {
+        const double inputGain = std::pow(10., p.get("input_gain") / 20);
+        const double limit = std::pow(10., (p.get("ceiling") - p.get("input_gain")) / 20);
+        const double releaseMs = p.get("auto_release") >= .5f ? 250. : p.get("release");
+        const double release = std::exp(-1. / (.001 * releaseMs * rate));
+        const double attack = std::exp(-4. / double(lookahead));
+        const std::size_t capacity = lookahead + 1;
+        for (std::size_t i = 0; i < frames; ++i) {
+            double l = stereo[i * 2], r = stereo[i * 2 + 1];
+            if (!std::isfinite(l))
+                l = 0;
+            if (!std::isfinite(r))
+                r = 0;
+            l *= inputGain;
+            r *= inputGain;
+            const double peak = std::max(std::abs(l), std::abs(r));
+            const double need = peak > 0 ? std::min(1., limit / peak) : 1.;
+            while (count && windowIndex[head] + lookahead < position) {
+                head = (head + 1) % capacity;
+                --count;
+            }
+            while (count && windowValue[(head + count - 1) % capacity] >= need)
+                --count;
+            windowValue[(head + count) % capacity] = need;
+            windowIndex[(head + count) % capacity] = position;
+            ++count;
+            const double windowMin = windowValue[head];
+            const double coefficient = windowMin < envelope ? attack : release;
+            envelope = windowMin + coefficient * (envelope - windowMin);
+            const double delayedL = delay[0][write], delayedR = delay[1][write];
+            delay[0][write] = l;
+            delay[1][write] = r;
+            write = (write + 1) % lookahead;
+            const double delayedPeak = std::max(std::abs(delayedL), std::abs(delayedR));
+            double gain = envelope;
+            if (delayedPeak > limit)
+                gain = std::min(gain, limit / delayedPeak);
+            if (!std::isfinite(gain))
+                gain = 0;
+            reduction = gain > 0 ? -20. * std::log10(gain) : 0;
+            stereo[i * 2] = static_cast<float>(std::clamp(delayedL * gain, -maxFloat, maxFloat));
+            stereo[i * 2 + 1] =
+                static_cast<float>(std::clamp(delayedR * gain, -maxFloat, maxFloat));
+            ++position;
+        }
+    }
+};
+// The pre-optimization de-esser, kept verbatim as a reference for the settled fast path.
+struct DeEsserReference {
+    using Coeff = std::array<double, 5>;
+    struct BandPass {
+        std::array<Smoother, 5> coefficients;
+        std::array<std::array<double, 2>, 2> state{};
+    };
+    BandPass band;
+    double rate = 48000, energy = 0, reduction = 0;
+    Coeff coefficients(const ParameterSet& p) const {
+        const double w =
+            2 * std::numbers::pi * std::clamp<double>(p.get("frequency"), 1, rate * .49) / rate;
+        const double alpha = std::sin(w) / (2 * std::max<double>(p.get("q"), .05)), a0 = 1 + alpha;
+        return {alpha / a0, 0, -alpha / a0, -2 * std::cos(w) / a0, (1 - alpha) / a0};
+    }
+    void prepare(double sampleRate, const ParameterSet& p) {
+        rate = sampleRate;
+        for (auto& coefficient : band.coefficients)
+            coefficient.prepare(rate);
+        reset(p);
+    }
+    void reset(const ParameterSet& p) {
+        band.state = {};
+        const auto current = coefficients(p);
+        for (std::size_t i = 0; i < current.size(); ++i)
+            band.coefficients[i].reset(current[i]);
+        energy = 0;
+        reduction = 0;
+    }
+    void process(const ParameterSet& p, float* stereo, std::size_t frames) {
+        const double threshold = p.get("threshold"), slope = 1 - 1. / p.get("ratio"),
+                     range = p.get("range");
+        const double attack =
+            std::exp(-1. / (.001 * std::max<double>(p.get("attack"), .01) * rate));
+        const double release =
+            std::exp(-1. / (.001 * std::max<double>(p.get("release"), .01) * rate));
+        const double level = std::exp(-1. / (.001 * 1. * rate));
+        const bool listen = p.get("listen") >= .5f, wide = p.get("mode") >= .5f;
+        const auto target = coefficients(p);
+        for (std::size_t i = 0; i < target.size(); ++i)
+            band.coefficients[i].target(target[i]);
+        for (std::size_t frame = 0; frame < frames; ++frame) {
+            Coeff c;
+            for (std::size_t i = 0; i < c.size(); ++i)
+                c[i] = band.coefficients[i].next();
+            std::array<double, 2> dry{}, wet{};
+            for (unsigned channel = 0; channel < 2; ++channel) {
+                double x = stereo[frame * 2 + channel];
+                if (!std::isfinite(x))
+                    x = 0;
+                dry[channel] = x;
+                auto& state = band.state[channel];
+                wet[channel] = c[0] * x + state[0];
+                state[0] = c[1] * x - c[3] * wet[channel] + state[1];
+                state[1] = c[2] * x - c[4] * wet[channel];
+                for (auto& z : state)
+                    if (!std::isfinite(z) || std::abs(z) < 1e-30)
+                        z = 0;
+                if (!std::isfinite(wet[channel])) {
+                    wet[channel] = 0;
+                    state = {};
+                }
+            }
+            const double power = std::max(wet[0] * wet[0], wet[1] * wet[1]);
+            energy = power + level * (energy - power);
+            if (energy < 1e-30)
+                energy = 0;
+            const double over = 10 * std::log10(std::max(2 * energy, 1e-30)) - threshold;
+            const double targetReduction = over > 0 ? std::min<double>(range, slope * over) : 0;
+            const double coefficient = targetReduction > reduction ? attack : release;
+            reduction = targetReduction + coefficient * (reduction - targetReduction);
+            const double gain = std::pow(10., -reduction / 20);
+            for (unsigned channel = 0; channel < 2; ++channel) {
+                const double out = listen ? wet[channel]
+                                   : wide ? dry[channel] * gain
+                                          : dry[channel] + (gain - 1) * wet[channel];
+                stereo[frame * 2 + channel] =
+                    static_cast<float>(std::clamp(out, -maxFloat, maxFloat));
+            }
+        }
+    }
+};
 } // namespace
 
 TEST_CASE("Limiter and De-esser are registered with vocal defaults") {
@@ -531,4 +686,66 @@ TEST_CASE("16 tracks of Limiter plus De-esser stay inside half the real-time bud
     for (const auto& buffer : buffers)
         for (float v : buffer)
             CHECK(std::isfinite(v));
+}
+
+TEST_CASE("Optimized limiter matches the sample-wise reference while parameters settle and ramp") {
+    Limiter limiter;
+    LimiterReference reference;
+    limiter.prepare(rate, 512);
+    reference.prepare(rate);
+    std::uint32_t rng = 0x9e3779b9u;
+    for (int block = 0; block < 96; ++block) {
+        if (block % 3 == 0) {
+            limiter.parameters().set("input_gain", float((block * 7) % 25 - 12));
+            limiter.parameters().set("ceiling", float(-(block * 5) % 20));
+            limiter.parameters().set("release", float(20 + (block * 31) % 900));
+            limiter.parameters().set("auto_release", float(block % 2));
+        }
+        std::array<float, 1024> actual{}, expected{};
+        const double amplitude = .2 + .8 * std::abs(std::sin(float(block) * .3));
+        for (std::size_t i = 0; i < 512; ++i) {
+            rng = rng * 1664525u + 1013904223u;
+            const double noise = double(rng) / 4294967296.0 * 2 - 1;
+            const double sample =
+                amplitude *
+                (.7 * std::sin(2 * pi * (300 + 7 * block) * (block * 512 + i) / rate) + .3 * noise);
+            actual[i] = expected[i] = static_cast<float>(sample);
+        }
+        limiter.process(actual.data(), 512);
+        reference.process(limiter.parameters(), expected.data(), 512);
+        for (std::size_t i = 0; i < 1024; ++i)
+            REQUIRE(actual[i] == doctest::Approx(expected[i]).epsilon(1e-6).scale(1e-12));
+        CHECK(std::abs(limiter.gainReductionDb().load() - reference.reduction) < .01);
+    }
+}
+
+TEST_CASE("Optimized de-esser matches the sample-wise reference while parameters settle and ramp") {
+    DeEsser effect;
+    DeEsserReference reference;
+    effect.prepare(rate, 512);
+    reference.prepare(rate, effect.parameters());
+    for (int block = 0; block < 96; ++block) {
+        if (block % 3 == 0) {
+            effect.parameters().set("frequency", float(3000 + (block * 211) % 7000));
+            effect.parameters().set("q", float(.3 + (block % 8) * .9));
+            effect.parameters().set("threshold", float(-(block % 40)));
+            effect.parameters().set("ratio", float(1 + (block * 3) % 20));
+            effect.parameters().set("range", float((block * 7) % 31));
+            effect.parameters().set("attack", float(.1 + (block % 10) * 5.));
+            effect.parameters().set("release", float(1 + (block * 13) % 500));
+            effect.parameters().set("mode", float(block % 2));
+        }
+        std::array<float, 1024> actual{}, expected{};
+        for (std::size_t i = 0; i < 512; ++i) {
+            const auto frame = block * 512 + i;
+            const double sample = .2 * std::sin(2 * pi * 6500 * frame / rate) +
+                                  .1 * std::sin(2 * pi * 400 * frame / rate);
+            actual[i] = expected[i] = static_cast<float>(sample);
+        }
+        effect.process(actual.data(), 512);
+        reference.process(effect.parameters(), expected.data(), 512);
+        for (std::size_t i = 0; i < 1024; ++i)
+            REQUIRE(actual[i] == doctest::Approx(expected[i]).epsilon(1e-5).scale(1e-12));
+        CHECK(std::abs(effect.gainReductionDb().load() - reference.reduction) < .01);
+    }
 }

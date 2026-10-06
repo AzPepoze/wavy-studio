@@ -21,9 +21,10 @@ class Limiter final : public Effect {
     double rate_ = 48000;
     std::size_t lookahead_ = 1, write_ = 0;
     std::array<std::vector<double>, 2> delay_;
+    std::vector<double> needDelay_;
     std::vector<double> windowValue_;
     std::vector<std::uint64_t> windowIndex_;
-    std::size_t windowHead_ = 0, windowCount_ = 0;
+    std::size_t windowHead_ = 0, windowCount_ = 0, windowMask_ = 0;
     std::uint64_t position_ = 0;
     double envelope_ = 1;
 };
