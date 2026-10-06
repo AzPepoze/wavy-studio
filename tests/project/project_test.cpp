@@ -1,6 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "core/Log.hpp"
 #include "project/Project.hpp"
+#include "support/TimingLimit.hpp"
 #include "timeline/Commands.hpp"
 #include <algorithm>
 #include <chrono>
@@ -499,7 +500,7 @@ TEST_CASE("100 tracks x 1000 clips saves and loads quickly") {
     }
     wavy::log::info("project-test", "best of {} runs: {:.1f} ms", runs, bestMilliseconds);
 #ifdef NDEBUG
-    CHECK(bestMilliseconds < 500.0);
+    CHECK(bestMilliseconds < timingLimit(500.0));
 #else
     CHECK(bestMilliseconds >= 0.0);
 #endif

@@ -2,6 +2,7 @@
 #include "audio/AudioEngine.hpp"
 #include "core/Log.hpp"
 #include "record/CommitTake.hpp"
+#include "support/TimingLimit.hpp"
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -470,7 +471,7 @@ TEST_CASE("Ten minutes of stereo streams from ring to disk") {
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     log::info("record", "10 minute stereo ring/disk benchmark: {:.3f} s", elapsed);
     CHECK(writer.frames() == 48000 * 600);
-    CHECK(elapsed < 1.0);
+    CHECK(elapsed < timingLimit(1.0));
 }
 TEST_CASE("Optional real input device smoke check") {
     if (!std::getenv("WAVY_RECORD_DEVICE_SMOKE"))
