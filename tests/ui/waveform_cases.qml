@@ -89,6 +89,7 @@ Item {
         }
 
         function test_generated_tone_draws_waveform() {
+            if (!glPixelTests) skip("needs a GPU-backed OpenGL context");
             const clip = model.clips[0][0];
             let spanned = 0;
             tryVerify(() => {
@@ -99,6 +100,7 @@ Item {
         }
 
         function test_trimmed_clip_shows_a_different_part() {
+            if (!glPixelTests) skip("needs a GPU-backed OpenGL context");
             // A low-frequency square has a phase-dependent envelope at this zoom, unlike a tone.
             const clip = model.clips[0][0];
             clip.source = "generated:square:8:0.2:4.8";

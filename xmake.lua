@@ -191,7 +191,9 @@ target("waveform_qml_tests")
         runargs = {"-input", path.join(os.projectdir(), "tests", "ui", "waveform_cases.qml")},
         -- The software scenegraph backend skips generic QSGGeometryNode, so this test renders with
         -- the offscreen OpenGL backend. Plain qmltestrunner harnesses still run with software.
-        envs = {QT_QPA_PLATFORM = "offscreen", QT_QUICK_BACKEND = "opengl", QT_QPA_PLATFORMTHEME = ""}
+        -- CI runners have no GPU-backed GL, so the pixel assertions only run off CI.
+        envs = {QT_QPA_PLATFORM = "offscreen", QT_QUICK_BACKEND = "opengl", QT_QPA_PLATFORMTHEME = "",
+                WAVY_GL_PIXEL_TESTS = os.getenv("CI") and "" or "1"}
     })
 
 target("mixer_tests")

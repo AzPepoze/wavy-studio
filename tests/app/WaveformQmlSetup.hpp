@@ -19,6 +19,8 @@ class WaveformQmlSetup : public QObject {
         bridge_.setLibrary(library_);
         bridge_.subscribe();
         engine->rootContext()->setContextProperty("waveformBridge", &bridge_);
+        engine->rootContext()->setContextProperty("glPixelTests",
+                                                  !qEnvironmentVariableIsEmpty("WAVY_GL_PIXEL_TESTS"));
     }
 
   private:
