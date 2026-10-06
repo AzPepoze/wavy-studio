@@ -81,5 +81,4 @@ class WaveformItem : public QQuickItem {
     wavy::WaveformEnvelope envelope_;
     QSGGeometry* geometry_ = nullptr;
     QSGFlatColorMaterial* material_ = nullptr;
-    int capacity_ = 0;
 };

@@ -125,7 +125,6 @@ QSGNode* WaveformItem::updatePaintNode(QSGNode* node, UpdatePaintNodeData*) {
         material_ = new QSGFlatColorMaterial;
         geometryNode->setMaterial(material_);
         geometryNode->setFlag(QSGNode::OwnsMaterial);
-        capacity_ = 0;
     }
     if (material_->color() != color_) {
         material_->setColor(color_);
@@ -145,12 +144,10 @@ QSGNode* WaveformItem::updatePaintNode(QSGNode* node, UpdatePaintNodeData*) {
 
     const bool placeholder = columns == 0;
     const int vertexCount = placeholder ? 4 : 2 * (columns + 1);
-    if (capacity_ < vertexCount) {
+    // QSGGeometry::allocate keeps the buffer when the count is unchanged and only reallocates on
+    // a size change; setVertexCount exists only in newer Qt than the CI's 6.8.
+    if (geometry_->vertexCount() != vertexCount)
         geometry_->allocate(vertexCount);
-        capacity_ = vertexCount;
-    } else {
-        geometry_->setVertexCount(vertexCount);
-    }
 
     auto* vertices = geometry_->vertexDataAsPoint2D();
     const float half = static_cast<float>(height()) / 2.f;
