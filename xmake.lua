@@ -5,6 +5,10 @@ set_languages("cxx23")
 set_warnings("all", "extra")
 set_config("qt_sdkver", "6.11.2", {force = false})
 add_rules("mode.debug", "mode.release")
+-- <windows.h> defines min/max macros that break std::numeric_limits<T>::max() and std::max.
+if is_plat("windows", "mingw") then
+    add_defines("NOMINMAX", "WIN32_LEAN_AND_MEAN")
+end
 option("asio")
     set_default(false)
     set_showmenu(true)
